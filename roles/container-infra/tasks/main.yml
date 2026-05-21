@@ -1,0 +1,53 @@
+---
+# roles/container-infra/tasks/main.yml
+# 容器模式基础设施：构建镜像、创建网络、拉起节点容器
+
+- name: 构建容器节点基础镜像
+  community.docker.docker_image:
+    name: "{{ container_node_image }}"
+    build:
+      path: "{{ playbook_dir }}"
+      dockerfile: Dockerfile
+    source: build
+  delegate_to: localhost
+  run_once: true
+
+- name: 创建容器间通信网络
+  community.docker.docker_network:
+    name: "{{ container_network_name }}"
+    ipam_options:
+      subnet: "{{ container_network_subnet }}"
+  delegate_to: localhost
+  run_once: true
+
+- name: 创建节点容器
+  community.docker.docker_container:
+    name: "{{ inventory_hostname }}"
+    image: "{{ container_node_image }}"
+    state: started
+    privileged: "{{ container_run_privileged }}"
+    hostname: "{{ inventory_hostname }}"
+    networks:
+      - name: "{{ container_network_name }}"
+        ipv4_address: "{{ ansible_host }}"
+    ports: "{{ container_expose_ports | default(omit) }}"
+    tmpfs:
+      - /tmp
+      - /run
+      - /run/lock
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:ro
+    healthcheck:
+      test: ["CMD", "systemctl", "is-system-running"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  delegate_to: localhost
+
+- name: 等待节点容器 systemd 就绪
+  command: systemctl is-system-running
+  register: systemd_status
+  until: systemd_status.rc == 0
+  retries: 15
+  delay: 3
+  changed_when: false

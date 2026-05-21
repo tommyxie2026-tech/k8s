@@ -1,0 +1,172 @@
+---
+# roles/kubelet/tasks/main.yml
+
+# --- Containerd ---
+
+- name: 1. 分发 containerd 二进制包至节点
+  copy:
+    src: "{{ download_arch_dir }}/containerd-{{ containerd_version }}-linux-{{ target_arch }}.tar.gz"
+    dest: /tmp/containerd.tar.gz
+    mode: '0644'
+
+- name: 2. 解压并安装 containerd
+  shell: |
+    tar -zxf /tmp/containerd.tar.gz -C /usr/local
+  args:
+    creates: /usr/local/bin/containerd
+  changed_when: true
+
+- name: 3. 分发 runc 至节点
+  copy:
+    src: "{{ download_arch_dir }}/runc"
+    dest: /usr/local/bin/runc
+    mode: '0755'
+
+- name: 4. 分发 containerd systemd 单元文件
+  copy:
+    src: "{{ download_arch_dir }}/containerd.service"
+    dest: /etc/systemd/system/containerd.service
+    mode: '0644'
+  notify: containerd config changed
+
+- name: 5. 创建 containerd 配置目录
+  file:
+    path: "{{ containerd_config_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: 6. 渲染 containerd 配置文件
+  template:
+    src: containerd-config.toml.j2
+    dest: "{{ containerd_config_dir }}/config.toml"
+    mode: '0644'
+  notify: containerd config changed
+
+- name: 7. 启动并守护 containerd 服务
+  systemd:
+    name: containerd
+    state: started
+    enabled: yes
+    daemon_reload: yes
+
+# --- Kubelet ---
+
+- name: 8. 分发 Kubernetes 节点二进制包至节点
+  copy:
+    src: "{{ download_arch_dir }}/kubernetes-node-linux-{{ target_arch }}.tar.gz"
+    dest: /tmp/k8s-node.tar.gz
+    mode: '0644'
+
+- name: 9. 解压并安装 kubelet
+  shell: |
+    tar -zxf /tmp/k8s-node.tar.gz -C /tmp
+    cp /tmp/kubernetes/node/bin/kubelet /usr/local/bin/
+    chmod +x /usr/local/bin/kubelet
+  args:
+    creates: /usr/local/bin/kubelet
+  changed_when: true
+
+- name: 10. 在本地签发该节点 kubelet 证书
+  shell: |
+    echo '{"CN":"system:node:{{ inventory_hostname }}","hosts":["127.0.0.1","{{ ansible_host }}"],"key":{"algo":"{{ cert_key_algo }}","size":{{ cert_key_size }}},"names":[{"C":"{{ cert_subject.C }}","ST":"{{ cert_subject.ST }}","L":"{{ cert_subject.L }}","O":"system:nodes","OU":"{{ cert_subject.OU }}"}]}' > {{ inventory_hostname }}-kubelet-csr.json
+    {{ download_arch_dir }}/cfssl gencert -ca=ca.pem -ca-key=ca-key.pem -config=ca-config.json -profile=kubernetes {{ inventory_hostname }}-kubelet-csr.json | {{ download_arch_dir }}/cfssljson -bare {{ inventory_hostname }}-kubelet
+  args:
+    chdir: "{{ local_cluster_config_dir }}/ssl"
+    creates: "{{ local_cluster_config_dir }}/ssl/{{ inventory_hostname }}-kubelet.pem"
+  delegate_to: localhost
+  run_once: false
+
+- name: 11. 在本地生成该节点 kubelet kubeconfig
+  shell: |
+    {{ download_arch_dir }}/kubectl config set-cluster kubernetes \
+      --certificate-authority=ca.pem \
+      --embed-certs=true \
+      --server=https://{{ LB_APISERVER_VIP }}:{{ LB_APISERVER_PORT }} \
+      --kubeconfig=../kubeconfig/{{ inventory_hostname }}-kubelet.kubeconfig
+
+    {{ download_arch_dir }}/kubectl config set-credentials system:node:{{ inventory_hostname }} \
+      --client-certificate={{ inventory_hostname }}-kubelet.pem \
+      --client-key={{ inventory_hostname }}-kubelet-key.pem \
+      --embed-certs=true \
+      --kubeconfig=../kubeconfig/{{ inventory_hostname }}-kubelet.kubeconfig
+
+    {{ download_arch_dir }}/kubectl config set-context default \
+      --cluster=kubernetes \
+      --user=system:node:{{ inventory_hostname }} \
+      --kubeconfig=../kubeconfig/{{ inventory_hostname }}-kubelet.kubeconfig
+
+    {{ download_arch_dir }}/kubectl config use-context default \
+      --kubeconfig=../kubeconfig/{{ inventory_hostname }}-kubelet.kubeconfig
+  args:
+    chdir: "{{ local_cluster_config_dir }}/ssl"
+    creates: "{{ local_cluster_config_dir }}/kubeconfig/{{ inventory_hostname }}-kubelet.kubeconfig"
+  delegate_to: localhost
+  run_once: false
+
+- name: 12. 创建 kubelet 工作目录
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  with_items:
+    - /etc/kubernetes/ssl
+    - /etc/kubernetes/manifests
+    - "{{ kubelet_config_dir }}"
+    - "{{ kubelet_config_dir }}/logs"
+    - "{{ kubelet_data_dir }}"
+
+- name: 13. 分发 CA 证书至节点
+  copy:
+    src: "{{ local_cluster_config_dir }}/ssl/ca.pem"
+    dest: /etc/kubernetes/ssl/ca.pem
+    mode: '0600'
+
+- name: 14. 分发 kubelet 证书与 kubeconfig
+  copy:
+    src: "{{ local_cluster_config_dir }}/{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: '0600'
+  with_items:
+    - { src: "ssl/{{ inventory_hostname }}-kubelet.pem", dest: "/etc/kubernetes/ssl/kubelet.pem" }
+    - { src: "ssl/{{ inventory_hostname }}-kubelet-key.pem", dest: "/etc/kubernetes/ssl/kubelet-key.pem" }
+    - { src: "kubeconfig/{{ inventory_hostname }}-kubelet.kubeconfig", dest: "/etc/kubernetes/kubelet.kubeconfig" }
+
+- name: 15. 渲染 kubelet 配置文件
+  template:
+    src: kubelet-config.yaml.j2
+    dest: "{{ kubelet_config_dir }}/config.yaml"
+    mode: '0644'
+  notify: kubelet config changed
+
+- name: 16. 渲染 kubelet systemd 服务
+  template:
+    src: kubelet.service.j2
+    dest: /etc/systemd/system/kubelet.service
+    mode: '0644'
+  notify: kubelet config changed
+
+- name: 17. 启动并守护 kubelet 服务
+  systemd:
+    name: kubelet
+    state: started
+    enabled: yes
+    daemon_reload: yes
+
+- name: 18. 校验 kubelet 服务运行状态
+  command: systemctl is-active kubelet
+  register: kubelet_status
+  until: kubelet_status.rc == 0
+  retries: 10
+  delay: 3
+  changed_when: false
+
+- name: 19. 校验节点已完成注册（不等待 Ready）
+  command: >
+    {{ download_arch_dir }}/kubectl get node {{ inventory_hostname }}
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: node_registered
+  until: node_registered.rc == 0
+  retries: 20
+  delay: 6
+  delegate_to: localhost
+  changed_when: false

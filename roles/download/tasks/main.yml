@@ -1,0 +1,111 @@
+---
+# roles/download/tasks/main.yml
+# 统一下载所有二进制包到 files/<arch>/ 目录
+
+- name: 创建下载目录
+  file:
+    path: "{{ download_arch_dir }}"
+    state: directory
+    mode: '0755'
+  delegate_to: localhost
+  run_once: true
+
+# --- 控制机工具 (本地架构) ---
+
+- name: 下载 cfssl
+  get_url:
+    url: "https://github.com/cloudflare/cfssl/releases/download/v{{ cfssl_version }}/cfssl_{{ ansible_system | lower }}_{{ target_arch }}"
+    dest: "{{ download_arch_dir }}/cfssl"
+    mode: '0755'
+  delegate_to: localhost
+  run_once: true
+
+- name: 下载 cfssljson
+  get_url:
+    url: "https://github.com/cloudflare/cfssl/releases/download/v{{ cfssl_version }}/cfssljson_{{ ansible_system | lower }}_{{ target_arch }}"
+    dest: "{{ download_arch_dir }}/cfssljson"
+    mode: '0755'
+  delegate_to: localhost
+  run_once: true
+
+- name: 下载 kubectl
+  get_url:
+    url: "https://dl.k8s.io/release/v{{ kubernetes_version }}/bin/{{ ansible_system | lower }}/{{ target_arch }}/kubectl"
+    dest: "{{ download_arch_dir }}/kubectl"
+    mode: '0755'
+  delegate_to: localhost
+  run_once: true
+
+# --- etcd ---
+
+- name: 下载 etcd
+  get_url:
+    url: "https://github.com/etcd-io/etcd/releases/download/v{{ etcd_version }}/etcd-v{{ etcd_version }}-linux-{{ target_arch }}.tar.gz"
+    dest: "{{ download_arch_dir }}/etcd-v{{ etcd_version }}-linux-{{ target_arch }}.tar.gz"
+    mode: '0644'
+  delegate_to: localhost
+  run_once: true
+
+# --- Kubernetes ---
+
+- name: 下载 Kubernetes Server 二进制包
+  get_url:
+    url: "https://dl.k8s.io/v{{ kubernetes_version }}/kubernetes-server-linux-{{ target_arch }}.tar.gz"
+    dest: "{{ download_arch_dir }}/kubernetes-server-linux-{{ target_arch }}.tar.gz"
+    mode: '0644'
+  delegate_to: localhost
+  run_once: true
+
+- name: 下载 Kubernetes Node 二进制包
+  get_url:
+    url: "https://dl.k8s.io/v{{ kubernetes_version }}/kubernetes-node-linux-{{ target_arch }}.tar.gz"
+    dest: "{{ download_arch_dir }}/kubernetes-node-linux-{{ target_arch }}.tar.gz"
+    mode: '0644'
+  delegate_to: localhost
+  run_once: true
+
+# --- Containerd ---
+
+- name: 下载 containerd
+  get_url:
+    url: "https://github.com/containerd/containerd/releases/download/v{{ containerd_version }}/containerd-{{ containerd_version }}-linux-{{ target_arch }}.tar.gz"
+    dest: "{{ download_arch_dir }}/containerd-{{ containerd_version }}-linux-{{ target_arch }}.tar.gz"
+    mode: '0644'
+  delegate_to: localhost
+  run_once: true
+
+- name: 下载 runc
+  get_url:
+    url: "https://github.com/opencontainers/runc/releases/download/v{{ runc_version }}/runc.{{ target_arch }}"
+    dest: "{{ download_arch_dir }}/runc"
+    mode: '0755'
+  delegate_to: localhost
+  run_once: true
+
+- name: 下载 containerd.service
+  get_url:
+    url: "https://raw.githubusercontent.com/containerd/containerd/v{{ containerd_version }}/containerd.service"
+    dest: "{{ download_arch_dir }}/containerd.service"
+    mode: '0644'
+  delegate_to: localhost
+  run_once: true
+
+# --- CNI ---
+
+- name: 下载 CNI 插件
+  get_url:
+    url: "https://github.com/containernetworking/plugins/releases/download/v{{ cni_plugins_version }}/cni-plugins-linux-{{ target_arch }}-v{{ cni_plugins_version }}.tgz"
+    dest: "{{ download_arch_dir }}/cni-plugins-linux-{{ target_arch }}-v{{ cni_plugins_version }}.tgz"
+    mode: '0644'
+  delegate_to: localhost
+  run_once: true
+
+# --- Calico ---
+
+- name: 下载 Calico 清单
+  get_url:
+    url: "https://raw.githubusercontent.com/projectcalico/calico/v{{ calico_version }}/manifests/calico.yaml"
+    dest: "{{ download_arch_dir }}/calico.yaml"
+    mode: '0644'
+  delegate_to: localhost
+  run_once: true

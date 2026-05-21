@@ -1,0 +1,21 @@
+[Unit]
+Description=Kubernetes Scheduler
+Documentation=https://github.com/kubernetes/kubernetes
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/kube-scheduler \
+  --v=2 \
+  --log-dir=/opt/kube-scheduler/logs \
+  --kubeconfig=/etc/kubernetes/kube-scheduler.kubeconfig \
+  --authentication-kubeconfig=/etc/kubernetes/kube-scheduler.kubeconfig \
+  --authorization-kubeconfig=/etc/kubernetes/kube-scheduler.kubeconfig \
+  --leader-elect=true \
+  --bind-address={{ ansible_host }} \
+  --secure-port={{ kube_scheduler_secure_port }}
+Restart=always
+RestartSec=10
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

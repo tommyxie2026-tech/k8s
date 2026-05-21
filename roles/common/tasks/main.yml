@@ -1,0 +1,86 @@
+---
+# roles/common/tasks/main.yml
+# 旗舰生产级 Kubernetes 节点初始化配置
+# 支持 machine (VM/物理机) 和 container (Docker) 两种部署模式
+
+- name: 1. 禁用系统防火墙 (UFW/Firewalld)
+  service:
+    name: "{{ item }}"
+    state: stopped
+    enabled: no
+  failed_when: false
+  with_items:
+    - firewalld
+    - ufw
+  when: node_type == 'machine'
+
+- name: 2. 彻底关闭 Swap 分区 (Kubelet 强力依赖)
+  shell: |
+    swapoff -a
+    sed -ri '/swap/s/^([^#])/#\1/' /etc/fstab
+  changed_when: true
+  when: node_type == 'machine'
+
+- name: 3. 加载 K8s 所需内核模块
+  modprobe:
+    name: "{{ item }}"
+    state: present
+  with_items:
+    - br_netfilter
+    - ip_vs
+    - ip_vs_rr
+    - ip_vs_wrr
+    - ip_vs_sh
+    - nf_conntrack
+  when: node_type == 'machine'
+
+- name: 4. 开机自动加载内核模块
+  copy:
+    content: |
+      br_netfilter
+      ip_vs
+      ip_vs_rr
+      ip_vs_wrr
+      ip_vs_sh
+      nf_conntrack
+    dest: /etc/modules-load.d/k8s.conf
+    mode: '0644'
+  when: node_type == 'machine'
+
+- name: 5. 渲染 sysctl 参数实现网桥过滤与转发
+  sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    state: present
+    sysctl_file: /etc/sysctl.d/k8s.conf
+    reload: yes
+  with_dict:
+    net.bridge.bridge-nf-call-iptables: "1"
+    net.bridge.bridge-nf-call-ip6tables: "1"
+    net.ipv4.ip_forward: "1"
+    vm.swappiness: "0"
+  when: node_type == 'machine'
+
+- name: 6. 安装 IPVS、Conntrack 及基础运维工具
+  package:
+    name:
+      - ipset
+      - ipvsadm
+      - conntrack
+      - curl
+      - jq
+      - "{{ 'nmap-ncat' if ansible_os_family == 'RedHat' else 'netcat-openbsd' }}"
+    state: present
+
+- name: 7. 安装并启用时间同步服务 (Chrony)
+  block:
+    - name: 安装 Chrony
+      package:
+        name: chrony
+        state: present
+    - name: 启动并守护 Chrony 服务
+      service:
+        name: "{{ 'chronyd' if ansible_os_family == 'RedHat' else 'chrony' }}"
+        state: started
+        enabled: yes
+  when: node_type == 'machine'

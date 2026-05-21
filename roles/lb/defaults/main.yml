@@ -1,0 +1,14 @@
+---
+# roles/lb/defaults/main.yml
+
+nginx_worker_connections: 1024
+nginx_proxy_connect_timeout: "2s"
+nginx_proxy_timeout: "900s"
+nginx_upstream_max_fails: 3
+nginx_upstream_fail_timeout: "30s"
+keepalived_router_id: "LB_K8S"
+keepalived_virtual_router_id: 51
+keepalived_advert_int: 1
+keepalived_check_interval: 2
+keepalived_check_weight: -20
+keepalived_auth_pass: "k8s-vip-auth"

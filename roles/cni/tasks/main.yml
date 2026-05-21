@@ -1,0 +1,101 @@
+---
+# roles/cni/tasks/main.yml
+
+# --- CNI 基础二进制 (所有节点) ---
+
+- name: 1. 创建 CNI 二进制目录
+  file:
+    path: /opt/cni/bin
+    state: directory
+    mode: '0755'
+
+- name: 2. 分发 CNI 插件至节点
+  copy:
+    src: "{{ download_arch_dir }}/cni-plugins-linux-{{ target_arch }}-v{{ cni_plugins_version }}.tgz"
+    dest: /tmp/cni-plugins.tgz
+    mode: '0644'
+
+- name: 3. 解压安装 CNI 插件
+  shell: |
+    tar -zxf /tmp/cni-plugins.tgz -C /opt/cni/bin/
+  args:
+    creates: /opt/cni/bin/bridge
+  changed_when: true
+
+- name: 4. 创建 CNI 配置目录
+  file:
+    path: /etc/cni/net.d
+    state: directory
+    mode: '0755'
+
+# --- Calico 网络插件 (localhost) ---
+
+- name: 5. 从本地缓存复制 Calico 网络插件清单
+  copy:
+    src: "{{ download_arch_dir }}/calico.yaml"
+    dest: "{{ local_cluster_config_dir }}/calico.yaml"
+    mode: '0644'
+  delegate_to: localhost
+  run_once: true
+
+- name: 6.1 自定义 Calico 清单 - 启用 CALICO_IPV4POOL_CIDR
+  replace:
+    path: "{{ local_cluster_config_dir }}/calico.yaml"
+    regexp: '# - name: CALICO_IPV4POOL_CIDR'
+    replace: '- name: CALICO_IPV4POOL_CIDR'
+  delegate_to: localhost
+  run_once: true
+
+- name: 6.2 自定义 Calico 清单 - 设置 Cluster CIDR
+  replace:
+    path: "{{ local_cluster_config_dir }}/calico.yaml"
+    regexp: '#   value: "192\.168\.0\.0/16"'
+    replace: '  value: "{{ CLUSTER_CIDR }}"'
+  delegate_to: localhost
+  run_once: true
+
+- name: 7. 部署 Calico 网络插件
+  command: >
+    {{ download_arch_dir }}/kubectl apply
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+    -f {{ local_cluster_config_dir }}/calico.yaml
+  delegate_to: localhost
+  run_once: true
+
+# --- CoreDNS (localhost) ---
+
+- name: 8. 渲染 CoreDNS 清单
+  template:
+    src: coredns.yaml.j2
+    dest: "{{ local_cluster_config_dir }}/coredns.yaml"
+    mode: '0644'
+  delegate_to: localhost
+  run_once: true
+
+- name: 9. 部署 CoreDNS 至集群
+  command: >
+    {{ download_arch_dir }}/kubectl apply
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+    -f {{ local_cluster_config_dir }}/coredns.yaml
+  delegate_to: localhost
+  run_once: true
+
+# --- kube-proxy DaemonSet (localhost) ---
+
+- name: 10. 渲染 kube-proxy DaemonSet 清单
+  template:
+    src: kube-proxy-daemonset.yaml.j2
+    dest: "{{ local_cluster_config_dir }}/kube-proxy-daemonset.yaml"
+    mode: '0644'
+  delegate_to: localhost
+  run_once: true
+  when: kube_proxy_deploy_mode == 'daemonset'
+
+- name: 11. 部署 kube-proxy DaemonSet 至集群
+  command: >
+    {{ download_arch_dir }}/kubectl apply
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+    -f {{ local_cluster_config_dir }}/kube-proxy-daemonset.yaml
+  delegate_to: localhost
+  run_once: true
+  when: kube_proxy_deploy_mode == 'daemonset'

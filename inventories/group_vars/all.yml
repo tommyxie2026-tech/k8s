@@ -1,0 +1,25 @@
+---
+# inventories/group_vars/all.yml
+# 统一组件版本号 (单一事实来源，覆盖各 role defaults)
+
+# --- 部署模式 ---
+# machine: 虚拟机/物理机 (默认)
+# container: Docker 容器节点 (开发/CI)
+node_type: "machine"
+
+# --- kube-proxy 部署方式 ---
+# daemonset: 容器化 DaemonSet (推荐，所有模式通用)
+# systemd: 二进制 systemd 服务 (传统方式)
+kube_proxy_deploy_mode: "daemonset"
+
+# --- 组件版本 ---
+cfssl_version: "1.6.4"
+etcd_version: "3.6.11"
+kubernetes_version: "1.36.1"
+containerd_version: "2.3.0"
+runc_version: "1.3.5"
+cni_plugins_version: "1.9.1"
+calico_version: "3.32.0"
+coredns_version: "1.14.3"
+coredns_image: "coredns/coredns"
+kube_proxy_image: "registry.k8s.io/kube-proxy"

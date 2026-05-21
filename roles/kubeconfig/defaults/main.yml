@@ -1,0 +1,13 @@
+---
+# roles/kubeconfig/defaults/main.yml
+
+cfssl_version: "1.6.4"
+cert_expiry: "87600h"
+cert_key_algo: "rsa"
+cert_key_size: 2048
+cert_subject:
+  C: "CN"
+  ST: "Beijing"
+  L: "Beijing"
+  O: "k8s"
+  OU: "System"

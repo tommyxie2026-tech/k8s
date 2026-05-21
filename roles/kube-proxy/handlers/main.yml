@@ -1,0 +1,13 @@
+---
+# roles/kube-proxy/handlers/main.yml
+
+- name: daemon reload
+  listen: kube-proxy config changed
+  systemd:
+    daemon_reload: yes
+
+- name: restart kube-proxy
+  listen: kube-proxy config changed
+  systemd:
+    name: kube-proxy
+    state: restarted

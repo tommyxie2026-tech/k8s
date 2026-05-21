@@ -1,0 +1,31 @@
+---
+# roles/preflight_cache/tasks/main.yml
+
+- name: 检查本地二进制缓存文件
+  stat:
+    path: "{{ item }}"
+  register: cache_file_stats
+  loop: "{{ required_cache_files | default([]) }}"
+  delegate_to: localhost
+  run_once: true
+
+- name: 计算缺失的本地二进制缓存文件
+  set_fact:
+    missing_cache_files: "{{ cache_file_stats.results | rejectattr('stat.exists') | map(attribute='item') | list }}"
+  delegate_to: localhost
+  run_once: true
+
+- name: 缓存缺失时终止部署
+  fail:
+    msg: |
+      本地二进制缓存缺失，不能继续执行当前 playbook。
+      请先执行：
+        ansible-playbook -i inventories/hosts.yml 0001-download-binaries.yml
+
+      缺失文件：
+      {% for file in missing_cache_files %}
+      - {{ file }}
+      {% endfor %}
+  when: missing_cache_files | length > 0
+  delegate_to: localhost
+  run_once: true

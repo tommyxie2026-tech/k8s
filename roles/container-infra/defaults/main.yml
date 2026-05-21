@@ -1,0 +1,9 @@
+---
+# roles/container-infra/defaults/main.yml
+
+container_node_image: "k8s-node-base"
+container_network_name: "k8s-net"
+container_network_subnet: "192.168.10.0/24"
+container_ssh_port: 22
+container_run_privileged: true
+container_run_with_systemd: true

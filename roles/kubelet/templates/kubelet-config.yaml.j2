@@ -1,0 +1,21 @@
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+authentication:
+  anonymous:
+    enabled: false
+  webhook:
+    enabled: true
+  x509:
+    clientCAFile: /etc/kubernetes/ssl/ca.pem
+authorization:
+  mode: Webhook
+clusterDomain: "{{ CLUSTER_DOMAIN }}"
+clusterDNS:
+  - "{{ CLUSTER_DNS_SVC_IP }}"
+cgroupDriver: systemd
+containerRuntimeEndpoint: "unix:///run/containerd/containerd.sock"
+failSwapOn: true
+healthzBindAddress: "0.0.0.0"
+healthzPort: {{ kubelet_healthz_port }}
+runtimeRequestTimeout: "{{ kubelet_runtime_request_timeout }}"
+staticPodPath: /etc/kubernetes/manifests

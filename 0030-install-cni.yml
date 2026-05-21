@@ -1,0 +1,60 @@
+---
+# 0030-install-cni.yml
+# 旗舰级高可用 Kubernetes 二进制部署 - CNI 网络插件、kube-proxy 与 CoreDNS 部署入口
+
+- name: 部署 CNI 网络插件至所有节点
+  hosts: kube_node
+  gather_facts: yes
+  become: yes
+  vars:
+    required_cache_files:
+      - "{{ download_arch_dir }}/kubectl"
+      - "{{ download_arch_dir }}/cni-plugins-linux-{{ target_arch }}-v{{ cni_plugins_version }}.tgz"
+      - "{{ download_arch_dir }}/calico.yaml"
+  pre_tasks:
+    - name: 校验本地二进制缓存已准备
+      include_role:
+        name: preflight_cache
+  roles:
+    - cni
+
+- name: 部署 kube-proxy systemd 服务至所有节点 (传统模式)
+  hosts: kube_node
+  gather_facts: yes
+  become: yes
+  vars:
+    required_cache_files:
+      - "{{ download_arch_dir }}/kubernetes-node-linux-{{ target_arch }}.tar.gz"
+  pre_tasks:
+    - name: 校验本地二进制缓存已准备
+      include_role:
+        name: preflight_cache
+      when: kube_proxy_deploy_mode == 'systemd'
+  roles:
+    - role: kube-proxy
+      when: kube_proxy_deploy_mode == 'systemd'
+
+- name: 校验 CNI、CoreDNS 与 kube-proxy 部署后节点 Ready
+  hosts: localhost
+  gather_facts: no
+  vars:
+    required_cache_files:
+      - "{{ download_arch_dir }}/kubectl"
+  pre_tasks:
+    - name: 校验本地二进制缓存已准备
+      include_role:
+        name: preflight_cache
+  tasks:
+    - name: 轮询等待所有节点 Ready
+      command: >
+        {{ download_arch_dir }}/kubectl get nodes
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+        --no-headers
+      register: nodes_output
+      until: >
+        nodes_output.stdout_lines | length > 0
+        and nodes_output.stdout_lines | map('regex_replace', '^\\S+\\s+(\\S+).*', '\\1')
+        | select('equalto', 'NotReady') | list | length == 0
+      retries: 30
+      delay: 10
+      changed_when: false

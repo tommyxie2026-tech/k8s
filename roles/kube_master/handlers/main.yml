@@ -1,0 +1,35 @@
+---
+# roles/kube_master/handlers/main.yml
+
+- name: daemon reload
+  listen: kube-apiserver config changed
+  systemd:
+    daemon_reload: yes
+
+- name: restart kube-apiserver
+  listen: kube-apiserver config changed
+  systemd:
+    name: kube-apiserver
+    state: restarted
+
+- name: daemon reload
+  listen: kube-controller-manager config changed
+  systemd:
+    daemon_reload: yes
+
+- name: restart kube-controller-manager
+  listen: kube-controller-manager config changed
+  systemd:
+    name: kube-controller-manager
+    state: restarted
+
+- name: daemon reload
+  listen: kube-scheduler config changed
+  systemd:
+    daemon_reload: yes
+
+- name: restart kube-scheduler
+  listen: kube-scheduler config changed
+  systemd:
+    name: kube-scheduler
+    state: restarted

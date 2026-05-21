@@ -1,0 +1,10 @@
+---
+# 0000-common.yml
+# 旗舰级高可用 Kubernetes 二进制部署 - 节点环境初始化入口
+
+- name: 全局节点系统环境与内核参数初始化
+  hosts: kube_node:etcd
+  gather_facts: yes
+  become: yes
+  roles:
+    - common

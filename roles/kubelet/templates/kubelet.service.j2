@@ -1,0 +1,21 @@
+[Unit]
+Description=Kubernetes Kubelet
+Documentation=https://github.com/kubernetes/kubernetes
+After=containerd.service
+Requires=containerd.service
+
+[Service]
+ExecStart=/usr/local/bin/kubelet \
+  --v=2 \
+  --hostname-override={{ inventory_hostname }} \
+  --kubeconfig=/etc/kubernetes/kubelet.kubeconfig \
+  --config={{ kubelet_config_dir }}/config.yaml \
+  --root-dir={{ kubelet_data_dir }} \
+  --log-dir={{ kubelet_config_dir }}/logs \
+  --register-node=true
+Restart=always
+RestartSec=10
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

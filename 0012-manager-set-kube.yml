@@ -1,0 +1,23 @@
+---
+# 0012-manager-set-kube.yml
+# 旗舰级高可用 Kubernetes 二进制部署 - Master 节点 Kubelet 与容器运行时部署入口
+
+- name: 部署 Master 节点 kubelet 与容器运行时
+  hosts: kube_master
+  gather_facts: yes
+  become: yes
+  vars:
+    required_cache_files:
+      - "{{ download_arch_dir }}/cfssl"
+      - "{{ download_arch_dir }}/cfssljson"
+      - "{{ download_arch_dir }}/kubectl"
+      - "{{ download_arch_dir }}/containerd-{{ containerd_version }}-linux-{{ target_arch }}.tar.gz"
+      - "{{ download_arch_dir }}/runc"
+      - "{{ download_arch_dir }}/containerd.service"
+      - "{{ download_arch_dir }}/kubernetes-node-linux-{{ target_arch }}.tar.gz"
+  pre_tasks:
+    - name: 校验本地二进制缓存已准备
+      include_role:
+        name: preflight_cache
+  roles:
+    - kubelet

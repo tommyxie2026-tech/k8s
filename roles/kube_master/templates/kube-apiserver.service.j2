@@ -1,0 +1,46 @@
+[Unit]
+Description=Kubernetes API Server
+Documentation=https://github.com/kubernetes/kubernetes
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/kube-apiserver \
+  --v=2 \
+  --log-dir=/opt/kube-apiserver/logs \
+  --advertise-address={{ ansible_host }} \
+  --bind-address={{ ansible_host }} \
+  --secure-port={{ kube_apiserver_secure_port }} \
+  --service-cluster-ip-range={{ SERVICE_CIDR }} \
+  --service-node-port-range={{ kube_apiserver_service_node_port_range }} \
+  --tls-cert-file=/etc/kubernetes/ssl/apiserver.pem \
+  --tls-private-key-file=/etc/kubernetes/ssl/apiserver-key.pem \
+  --client-ca-file=/etc/kubernetes/ssl/ca.pem \
+  --requestheader-client-ca-file=/etc/kubernetes/ssl/front-proxy-ca.pem \
+  --requestheader-allowed-names=front-proxy-client \
+  --requestheader-extra-headers-prefix=X-Remote-Extra- \
+  --requestheader-group-headers=X-Remote-Group \
+  --requestheader-username-headers=X-Remote-User \
+  --proxy-client-cert-file=/etc/kubernetes/ssl/front-proxy-client.pem \
+  --proxy-client-key-file=/etc/kubernetes/ssl/front-proxy-client-key.pem \
+  --service-account-key-file=/etc/kubernetes/ssl/sa.pub \
+  --service-account-signing-key-file=/etc/kubernetes/ssl/sa.key \
+  --service-account-issuer=https://kubernetes.default.svc.cluster.local \
+  --api-audiences=api \
+  --etcd-servers={% for host in groups['etcd'] %}https://{{ hostvars[host]['ansible_host'] }}:2379{% if not loop.last %},{% endif %}{% endfor %} \
+  --etcd-cafile=/etc/kubernetes/ssl/ca.pem \
+  --etcd-certfile=/etc/kubernetes/ssl/etcd-client.pem \
+  --etcd-keyfile=/etc/kubernetes/ssl/etcd-client-key.pem \
+  --audit-policy-file=/etc/kubernetes/audit-policy.yaml \
+  --audit-log-path=/var/log/kubernetes/audit.log \
+  --audit-log-maxage={{ kube_apiserver_audit_log_maxage }} \
+  --audit-log-maxbackup={{ kube_apiserver_audit_log_maxbackup }} \
+  --audit-log-maxsize={{ kube_apiserver_audit_log_maxsize }} \
+  --enable-admission-plugins={{ kube_apiserver_admission_plugins }} \
+  --authorization-mode={{ kube_apiserver_authorization_mode }} \
+  --enable-bootstrap-token-auth=true
+Restart=always
+RestartSec=10
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

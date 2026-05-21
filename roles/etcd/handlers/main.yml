@@ -1,0 +1,13 @@
+---
+# roles/etcd/handlers/main.yml
+
+- name: daemon reload
+  listen: etcd config changed
+  systemd:
+    daemon_reload: yes
+
+- name: restart etcd
+  listen: etcd config changed
+  systemd:
+    name: etcd
+    state: restarted

@@ -1,0 +1,140 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kube-proxy
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kube-proxy
+subjects:
+  - kind: ServiceAccount
+    name: kube-proxy
+    namespace: kube-system
+roleRef:
+  kind: ClusterRole
+  name: system:node-proxier
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kube-proxy
+  namespace: kube-system
+data:
+  config.conf: |
+    apiVersion: kubeproxy.config.k8s.io/v1alpha1
+    bindAddress: "0.0.0.0"
+    clientConnection:
+      acceptContentTypes: ""
+      burst: 10
+      contentType: application/vnd.kubernetes.protobuf
+      kubeconfig: /var/lib/kube-proxy/kubeconfig
+      qps: 5
+    clusterCIDR: "{{ CLUSTER_CIDR }}"
+    configSyncPeriod: "15m"
+    conntrack:
+      maxPerCore: 32768
+      min: 131072
+      tcpCloseWaitTimeout: "1h0m0s"
+      tcpEstablishedTimeout: "24h0m0s"
+    enableProfiling: false
+    healthzBindAddress: "0.0.0.0:{{ kube_proxy_healthz_port }}"
+    iptables:
+      masqueradeAll: false
+      masqueradeBit: 14
+      minSyncPeriod: "0s"
+      syncPeriod: "30s"
+    ipvs:
+      minSyncPeriod: "0s"
+      scheduler: "{{ kube_proxy_ipvs_scheduler }}"
+      syncPeriod: "30s"
+    kind: KubeProxyConfiguration
+    metricsBindAddress: "0.0.0.0:{{ kube_proxy_metrics_port }}"
+    mode: "{{ kube_proxy_proxy_mode }}"
+    oomScoreAdj: -999
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kube-proxy-kubeconfig
+  namespace: kube-system
+type: Opaque
+data:
+  kubeconfig: "{{ lookup('file', local_cluster_config_dir + '/kubeconfig/kube-proxy.kubeconfig') | b64encode }}"
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: kube-proxy
+  namespace: kube-system
+  labels:
+    k8s-app: kube-proxy
+spec:
+  selector:
+    matchLabels:
+      k8s-app: kube-proxy
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        k8s-app: kube-proxy
+    spec:
+      serviceAccountName: kube-proxy
+      priorityClassName: system-node-critical
+      hostNetwork: true
+      tolerations:
+        - key: CriticalAddonsOnly
+          operator: Exists
+        - operator: Exists
+      nodeSelector:
+        kubernetes.io/os: linux
+      containers:
+        - name: kube-proxy
+          image: {{ kube_proxy_image }}:v{{ kubernetes_version }}
+          command:
+            - /usr/local/bin/kube-proxy
+            - --config=/var/lib/kube-proxy/config.conf
+            - --hostname-override=$(NODE_NAME)
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - name: kube-proxy-config
+              mountPath: /var/lib/kube-proxy/config.conf
+              subPath: config.conf
+            - name: kube-proxy-kubeconfig
+              mountPath: /var/lib/kube-proxy/kubeconfig
+              subPath: kubeconfig
+            - name: xtables-lock
+              mountPath: /run/xtables.lock
+            - name: lib-modules
+              mountPath: /lib/modules
+              readOnly: true
+          securityContext:
+            privileged: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+      volumes:
+        - name: kube-proxy-config
+          configMap:
+            name: kube-proxy
+        - name: kube-proxy-kubeconfig
+          secret:
+            secretName: kube-proxy-kubeconfig
+        - name: xtables-lock
+          hostPath:
+            path: /run/xtables.lock
+            type: FileOrCreate
+        - name: lib-modules
+          hostPath:
+            path: /lib/modules

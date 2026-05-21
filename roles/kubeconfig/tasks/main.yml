@@ -1,0 +1,346 @@
+---
+# roles/kubeconfig/tasks/main.yml
+# 旗舰级生产 CA、SA、etcd mTLS 及控制面组件证书与 Kubeconfig 生成 role
+
+- name: 1. 创建本地证书构建与缓存目录
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  delegate_to: localhost
+  run_once: true
+  with_items:
+    - "{{ local_cluster_config_dir }}/ssl"
+    - "{{ local_cluster_config_dir }}/kubeconfig"
+
+- name: 3. 渲染 CA 证书签发策略配置
+  copy:
+    content: |
+      {
+        "signing": {
+          "default": {
+            "expiry": "{{ cert_expiry }}"
+          },
+          "profiles": {
+            "kubernetes": {
+              "usages": [
+                "signing",
+                "key encipherment",
+                "server auth",
+                "client auth"
+              ],
+              "expiry": "{{ cert_expiry }}"
+            }
+          }
+        }
+      }
+    dest: "{{ local_cluster_config_dir }}/ssl/ca-config.json"
+    mode: '0644'
+  delegate_to: localhost
+  run_once: true
+
+- name: 4. 渲染 CA CSR 申请文件
+  copy:
+    content: |
+      {
+        "CN": "kubernetes",
+        "key": {
+          "algo": "{{ cert_key_algo }}",
+          "size": {{ cert_key_size }}
+        },
+        "names": [
+          {
+            "C": "{{ cert_subject.C }}",
+            "ST": "{{ cert_subject.ST }}",
+            "L": "{{ cert_subject.L }}",
+            "O": "{{ cert_subject.O }}",
+            "OU": "{{ cert_subject.OU }}"
+          }
+        ]
+      }
+    dest: "{{ local_cluster_config_dir }}/ssl/ca-csr.json"
+    mode: '0644'
+  delegate_to: localhost
+  run_once: true
+
+- name: 5. 生成全局根 CA
+  shell: |
+    {{ download_arch_dir }}/cfssl gencert -initca ca-csr.json | {{ download_arch_dir }}/cfssljson -bare ca
+  args:
+    chdir: "{{ local_cluster_config_dir }}/ssl"
+    creates: "{{ local_cluster_config_dir }}/ssl/ca.pem"
+  delegate_to: localhost
+  run_once: true
+
+- name: 6. 生成 Service Account 专有密钥对
+  shell: |
+    openssl genrsa -out sa.key {{ cert_key_size }}
+    openssl rsa -in sa.key -pubout -out sa.pub
+  args:
+    chdir: "{{ local_cluster_config_dir }}/ssl"
+    creates: "{{ local_cluster_config_dir }}/ssl/sa.key"
+  delegate_to: localhost
+  run_once: true
+
+- name: 6.1 渲染 front-proxy 根 CA CSR
+  copy:
+    content: |
+      {
+        "CN": "front-proxy-ca",
+        "key": {
+          "algo": "{{ cert_key_algo }}",
+          "size": {{ cert_key_size }}
+        },
+        "names": [
+          {
+            "C": "{{ cert_subject.C }}",
+            "ST": "{{ cert_subject.ST }}",
+            "L": "{{ cert_subject.L }}",
+            "O": "{{ cert_subject.O }}",
+            "OU": "{{ cert_subject.OU }}"
+          }
+        ]
+      }
+    dest: "{{ local_cluster_config_dir }}/ssl/front-proxy-ca-csr.json"
+    mode: '0644'
+  delegate_to: localhost
+  run_once: true
+
+- name: 6.2 生成 front-proxy 根 CA
+  shell: |
+    {{ download_arch_dir }}/cfssl gencert -initca front-proxy-ca-csr.json | {{ download_arch_dir }}/cfssljson -bare front-proxy-ca
+  args:
+    chdir: "{{ local_cluster_config_dir }}/ssl"
+    creates: "{{ local_cluster_config_dir }}/ssl/front-proxy-ca.pem"
+  delegate_to: localhost
+  run_once: true
+
+- name: 7. 渲染 etcd-client 证书 CSR
+  copy:
+    content: |
+      {
+        "CN": "etcd-client",
+        "key": {
+          "algo": "{{ cert_key_algo }}",
+          "size": {{ cert_key_size }}
+        },
+        "names": [
+          {
+            "C": "{{ cert_subject.C }}",
+            "ST": "{{ cert_subject.ST }}",
+            "L": "{{ cert_subject.L }}",
+            "O": "{{ cert_subject.O }}",
+            "OU": "{{ cert_subject.OU }}"
+          }
+        ]
+      }
+    dest: "{{ local_cluster_config_dir }}/ssl/etcd-client-csr.json"
+    mode: '0644'
+  delegate_to: localhost
+  run_once: true
+
+- name: 8. 签发 etcd mTLS 客户端证书
+  shell: |
+    {{ download_arch_dir }}/cfssl gencert -ca=ca.pem -ca-key=ca-key.pem -config=ca-config.json -profile=kubernetes etcd-client-csr.json | {{ download_arch_dir }}/cfssljson -bare etcd-client
+  args:
+    chdir: "{{ local_cluster_config_dir }}/ssl"
+    creates: "{{ local_cluster_config_dir }}/ssl/etcd-client.pem"
+  delegate_to: localhost
+  run_once: true
+
+- name: 9. 渲染 kube-proxy 证书 CSR
+  copy:
+    content: |
+      {
+        "CN": "system:kube-proxy",
+        "key": {
+          "algo": "{{ cert_key_algo }}",
+          "size": {{ cert_key_size }}
+        },
+        "names": [
+          {
+            "C": "{{ cert_subject.C }}",
+            "ST": "{{ cert_subject.ST }}",
+            "L": "{{ cert_subject.L }}",
+            "O": "{{ cert_subject.O }}",
+            "OU": "{{ cert_subject.OU }}"
+          }
+        ]
+      }
+    dest: "{{ local_cluster_config_dir }}/ssl/kube-proxy-csr.json"
+    mode: '0644'
+  delegate_to: localhost
+  run_once: true
+
+- name: 10. 签发 kube-proxy 证书
+  shell: |
+    {{ download_arch_dir }}/cfssl gencert -ca=ca.pem -ca-key=ca-key.pem -config=ca-config.json -profile=kubernetes kube-proxy-csr.json | {{ download_arch_dir }}/cfssljson -bare kube-proxy
+  args:
+    chdir: "{{ local_cluster_config_dir }}/ssl"
+    creates: "{{ local_cluster_config_dir }}/ssl/kube-proxy.pem"
+  delegate_to: localhost
+  run_once: true
+
+- name: 10.1 渲染 front-proxy-client 证书 CSR
+  copy:
+    content: |
+      {
+        "CN": "front-proxy-client",
+        "key": {
+          "algo": "{{ cert_key_algo }}",
+          "size": {{ cert_key_size }}
+        },
+        "names": [
+          {
+            "C": "{{ cert_subject.C }}",
+            "ST": "{{ cert_subject.ST }}",
+            "L": "{{ cert_subject.L }}",
+            "O": "{{ cert_subject.O }}",
+            "OU": "{{ cert_subject.OU }}"
+          }
+        ]
+      }
+    dest: "{{ local_cluster_config_dir }}/ssl/front-proxy-client-csr.json"
+    mode: '0644'
+  delegate_to: localhost
+  run_once: true
+
+- name: 10.2 签发 front-proxy-client 证书
+  shell: |
+    {{ download_arch_dir }}/cfssl gencert -ca=front-proxy-ca.pem -ca-key=front-proxy-ca-key.pem -config=ca-config.json -profile=kubernetes front-proxy-client-csr.json | {{ download_arch_dir }}/cfssljson -bare front-proxy-client
+  args:
+    chdir: "{{ local_cluster_config_dir }}/ssl"
+    creates: "{{ local_cluster_config_dir }}/ssl/front-proxy-client.pem"
+  delegate_to: localhost
+  run_once: true
+
+- name: 11. 渲染 kube-controller-manager 证书 CSR
+  copy:
+    content: |
+      {
+        "CN": "system:kube-controller-manager",
+        "key": {
+          "algo": "{{ cert_key_algo }}",
+          "size": {{ cert_key_size }}
+        },
+        "names": [
+          {
+            "C": "{{ cert_subject.C }}",
+            "ST": "{{ cert_subject.ST }}",
+            "L": "{{ cert_subject.L }}",
+            "O": "system:kube-controller-manager",
+            "OU": "{{ cert_subject.OU }}"
+          }
+        ]
+      }
+    dest: "{{ local_cluster_config_dir }}/ssl/kube-controller-manager-csr.json"
+    mode: '0644'
+  delegate_to: localhost
+  run_once: true
+
+- name: 12. 签发 kube-controller-manager 证书
+  shell: |
+    {{ download_arch_dir }}/cfssl gencert -ca=ca.pem -ca-key=ca-key.pem -config=ca-config.json -profile=kubernetes kube-controller-manager-csr.json | {{ download_arch_dir }}/cfssljson -bare kube-controller-manager
+  args:
+    chdir: "{{ local_cluster_config_dir }}/ssl"
+    creates: "{{ local_cluster_config_dir }}/ssl/kube-controller-manager.pem"
+  delegate_to: localhost
+  run_once: true
+
+- name: 13. 渲染 kube-scheduler 证书 CSR
+  copy:
+    content: |
+      {
+        "CN": "system:kube-scheduler",
+        "key": {
+          "algo": "{{ cert_key_algo }}",
+          "size": {{ cert_key_size }}
+        },
+        "names": [
+          {
+            "C": "{{ cert_subject.C }}",
+            "ST": "{{ cert_subject.ST }}",
+            "L": "{{ cert_subject.L }}",
+            "O": "system:kube-scheduler",
+            "OU": "{{ cert_subject.OU }}"
+          }
+        ]
+      }
+    dest: "{{ local_cluster_config_dir }}/ssl/kube-scheduler-csr.json"
+    mode: '0644'
+  delegate_to: localhost
+  run_once: true
+
+- name: 14. 签发 kube-scheduler 证书
+  shell: |
+    {{ download_arch_dir }}/cfssl gencert -ca=ca.pem -ca-key=ca-key.pem -config=ca-config.json -profile=kubernetes kube-scheduler-csr.json | {{ download_arch_dir }}/cfssljson -bare kube-scheduler
+  args:
+    chdir: "{{ local_cluster_config_dir }}/ssl"
+    creates: "{{ local_cluster_config_dir }}/ssl/kube-scheduler.pem"
+  delegate_to: localhost
+  run_once: true
+
+- name: 15. 渲染 admin 证书 CSR
+  copy:
+    content: |
+      {
+        "CN": "admin",
+        "key": {
+          "algo": "{{ cert_key_algo }}",
+          "size": {{ cert_key_size }}
+        },
+        "names": [
+          {
+            "C": "{{ cert_subject.C }}",
+            "ST": "{{ cert_subject.ST }}",
+            "L": "{{ cert_subject.L }}",
+            "O": "system:masters",
+            "OU": "{{ cert_subject.OU }}"
+          }
+        ]
+      }
+    dest: "{{ local_cluster_config_dir }}/ssl/admin-csr.json"
+    mode: '0644'
+  delegate_to: localhost
+  run_once: true
+
+- name: 16. 签发 admin 证书
+  shell: |
+    {{ download_arch_dir }}/cfssl gencert -ca=ca.pem -ca-key=ca-key.pem -config=ca-config.json -profile=kubernetes admin-csr.json | {{ download_arch_dir }}/cfssljson -bare admin
+  args:
+    chdir: "{{ local_cluster_config_dir }}/ssl"
+    creates: "{{ local_cluster_config_dir }}/ssl/admin.pem"
+  delegate_to: localhost
+  run_once: true
+
+- name: 17. 生成各核心组件 Kubeconfig
+  shell: |
+    {{ download_arch_dir }}/kubectl config set-cluster kubernetes \
+      --certificate-authority=ca.pem \
+      --embed-certs=true \
+      --server=https://{{ LB_APISERVER_VIP }}:{{ LB_APISERVER_PORT }} \
+      --kubeconfig=../kubeconfig/{{ item.name }}.kubeconfig
+
+    {{ download_arch_dir }}/kubectl config set-credentials {{ item.user }} \
+      --client-certificate={{ item.name }}.pem \
+      --client-key={{ item.name }}-key.pem \
+      --embed-certs=true \
+      --kubeconfig=../kubeconfig/{{ item.name }}.kubeconfig
+
+    {{ download_arch_dir }}/kubectl config set-context default \
+      --cluster=kubernetes \
+      --user={{ item.user }} \
+      --kubeconfig=../kubeconfig/{{ item.name }}.kubeconfig
+
+    {{ download_arch_dir }}/kubectl config use-context default \
+      --kubeconfig=../kubeconfig/{{ item.name }}.kubeconfig
+  args:
+    chdir: "{{ local_cluster_config_dir }}/ssl"
+    creates: "{{ local_cluster_config_dir }}/kubeconfig/{{ item.name }}.kubeconfig"
+  delegate_to: localhost
+  run_once: true
+  with_items:
+    - { name: "kube-proxy", user: "system:kube-proxy" }
+    - { name: "kube-controller-manager", user: "system:kube-controller-manager" }
+    - { name: "kube-scheduler", user: "system:kube-scheduler" }
+    - { name: "admin", user: "admin" }

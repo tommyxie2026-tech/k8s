@@ -1,0 +1,10 @@
+---
+# 0005-install-lb.yml
+# 旗舰级高可用 Kubernetes 二进制部署 - Nginx + Keepalived 负载均衡部署入口
+
+- name: Master 控制面节点本地/集群负载均衡高可用部署
+  hosts: kube_master
+  gather_facts: yes
+  become: yes
+  roles:
+    - lb

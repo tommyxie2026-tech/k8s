@@ -1,0 +1,35 @@
+[Unit]
+Description=etcd - Secure Shared Key-Value Store
+Documentation=https://github.com/etcd-io/etcd
+Conflicts=etcd.service
+After=network.target
+
+[Service]
+Type=notify
+WorkingDirectory={{ etcd_data_dir }}
+ExecStart=/usr/local/bin/etcd \
+  --name={{ etcd_name }} \
+  --cert-file={{ etcd_ssl_dir }}/etcd.pem \
+  --key-file={{ etcd_ssl_dir }}/etcd-key.pem \
+  --peer-cert-file={{ etcd_ssl_dir }}/etcd.pem \
+  --peer-key-file={{ etcd_ssl_dir }}/etcd-key.pem \
+  --trusted-ca-file={{ etcd_ssl_dir }}/ca.pem \
+  --peer-trusted-ca-file={{ etcd_ssl_dir }}/ca.pem \
+  --client-cert-auth=true \
+  --peer-client-cert-auth=true \
+  --initial-advertise-peer-urls=https://{{ ansible_host }}:{{ etcd_peer_port }} \
+  --listen-peer-urls=https://{{ ansible_host }}:{{ etcd_peer_port }} \
+  --listen-client-urls=https://127.0.0.1:{{ etcd_client_port }},https://{{ ansible_host }}:{{ etcd_client_port }} \
+  --advertise-client-urls=https://{{ ansible_host }}:{{ etcd_client_port }} \
+  --initial-cluster={% for host in groups['etcd'] %}{{ hostvars[host]['etcd_name'] }}=https://{{ hostvars[host]['ansible_host'] }}:{{ etcd_peer_port }}{% if not loop.last %},{% endif %}{% endfor %} \
+  --initial-cluster-token={{ etcd_initial_cluster_token }} \
+  --initial-cluster-state=new \
+  --data-dir={{ etcd_data_dir }} \
+  --snapshot-count={{ etcd_snapshot_count }} \
+  --auto-compaction-retention={{ etcd_auto_compaction_retention }}
+Restart=always
+RestartSec={{ etcd_restart_sec }}
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

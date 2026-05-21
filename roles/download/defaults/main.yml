@@ -1,0 +1,6 @@
+---
+# roles/download/defaults/main.yml
+# download role 的默认变量 (被 group_vars/all.yml 覆盖)
+
+download_dir: "{{ playbook_dir }}/files"
+download_arch_dir: "{{ download_dir }}/{{ target_arch }}"

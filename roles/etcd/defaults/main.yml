@@ -1,0 +1,12 @@
+---
+# roles/etcd/defaults/main.yml
+
+etcd_version: "3.6.11"
+etcd_data_dir: "/opt/etcd/data"
+etcd_ssl_dir: "/opt/etcd/ssl"
+etcd_peer_port: 2380
+etcd_client_port: 2379
+etcd_initial_cluster_token: "etcd-k8s-token"
+etcd_snapshot_count: 10000
+etcd_auto_compaction_retention: 1
+etcd_restart_sec: 5

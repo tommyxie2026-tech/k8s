@@ -1,0 +1,11 @@
+---
+# roles/kubelet/defaults/main.yml
+
+containerd_version: "2.3.0"
+runc_version: "1.3.5"
+kubernetes_version: "1.36.1"
+containerd_config_dir: "/etc/containerd"
+kubelet_config_dir: "/opt/kubelet"
+kubelet_data_dir: "/var/lib/kubelet"
+kubelet_healthz_port: 10248
+kubelet_runtime_request_timeout: "15m"

@@ -1,0 +1,57 @@
+---
+# roles/lb/tasks/main.yml
+# Nginx 4层代理 + Keepalived VIP 高可用
+# container 模式跳过 Keepalived (无 VIP 漂移需求)
+
+- name: 1. 在 Master 节点安装 nginx
+  package:
+    name: nginx
+    state: present
+
+- name: 1.1 在 Master 节点安装 keepalived
+  package:
+    name: keepalived
+    state: present
+  when: node_type == 'machine'
+
+- name: 2. 渲染 nginx stream 4层代理配置
+  template:
+    src: nginx.conf.j2
+    dest: /etc/nginx/nginx.conf
+    mode: '0644'
+  notify: nginx config changed
+
+- name: 3. 渲染 Nginx 健康度检查脚本
+  template:
+    src: check_nginx.sh.j2
+    dest: /etc/keepalived/check_nginx.sh
+    mode: '0755'
+  when: node_type == 'machine'
+
+- name: 4. 渲染 Keepalived 主备高可用配置
+  template:
+    src: keepalived.conf.j2
+    dest: /etc/keepalived/keepalived.conf
+    mode: '0644'
+  notify: keepalived config changed
+  when: node_type == 'machine'
+
+- name: 5. 启动并守护 Nginx 代理服务
+  service:
+    name: nginx
+    state: started
+    enabled: yes
+
+- name: 5.1 启动并守护 Keepalived 服务
+  service:
+    name: keepalived
+    state: started
+    enabled: yes
+  when: node_type == 'machine'
+
+- name: 6. 校验 Nginx 监听端口
+  wait_for:
+    port: "{{ LB_APISERVER_PORT }}"
+    host: 127.0.0.1
+    delay: 2
+    timeout: 10

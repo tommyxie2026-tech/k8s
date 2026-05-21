@@ -1,0 +1,38 @@
+---
+# 0010-create-manager-set.yml
+# 旗舰级高可用 Kubernetes 二进制部署 - 专属 etcd 与 Master 控制面核心三件套部署入口
+
+- name: "1. 部署独立专属 etcd 数据集群 (tags: etcd)"
+  hosts: etcd
+  gather_facts: yes
+  become: yes
+  vars:
+    required_cache_files:
+      - "{{ download_arch_dir }}/cfssl"
+      - "{{ download_arch_dir }}/cfssljson"
+      - "{{ download_arch_dir }}/etcd-v{{ etcd_version }}-linux-{{ target_arch }}.tar.gz"
+  pre_tasks:
+    - name: 校验本地二进制缓存已准备
+      include_role:
+        name: preflight_cache
+  roles:
+    - etcd
+  tags: etcd
+
+- name: "2. 部署 Master 控制面三核心服务 (tags: kube_master)"
+  hosts: kube_master
+  gather_facts: yes
+  become: yes
+  vars:
+    required_cache_files:
+      - "{{ download_arch_dir }}/cfssl"
+      - "{{ download_arch_dir }}/cfssljson"
+      - "{{ download_arch_dir }}/kubectl"
+      - "{{ download_arch_dir }}/kubernetes-server-linux-{{ target_arch }}.tar.gz"
+  pre_tasks:
+    - name: 校验本地二进制缓存已准备
+      include_role:
+        name: preflight_cache
+  roles:
+    - kube_master
+  tags: kube_master

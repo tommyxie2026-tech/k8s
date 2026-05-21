@@ -1,0 +1,27 @@
+global_defs {
+    router_id {{ keepalived_router_id }}
+}
+
+vrrp_script check_nginx {
+    script "/etc/keepalived/check_nginx.sh"
+    interval {{ keepalived_check_interval }}
+    weight {{ keepalived_check_weight }}
+}
+
+vrrp_instance VI_1 {
+    state {{ keepalived_state }}
+    interface {{ LB_INTERFACE }}
+    virtual_router_id {{ keepalived_virtual_router_id }}
+    priority {{ keepalived_priority }}
+    advert_int {{ keepalived_advert_int }}
+    authentication {
+        auth_type PASS
+        auth_pass {{ keepalived_auth_pass }}
+    }
+    virtual_ipaddress {
+        {{ LB_APISERVER_VIP }}
+    }
+    track_script {
+        check_nginx
+    }
+}

@@ -1,0 +1,9 @@
+---
+# 0001-download-binaries.yml
+# 统一下载所有二进制包到 files/<arch>/ 目录
+
+- name: 下载所有组件二进制包
+  hosts: localhost
+  gather_facts: yes
+  roles:
+    - download

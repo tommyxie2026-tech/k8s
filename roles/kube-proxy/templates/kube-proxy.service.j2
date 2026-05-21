@@ -1,0 +1,16 @@
+[Unit]
+Description=Kubernetes Kube-Proxy
+Documentation=https://github.com/kubernetes/kubernetes
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/kube-proxy \
+  --v=2 \
+  --config=/var/lib/kube-proxy/config.yaml \
+  --hostname-override={{ inventory_hostname }}
+Restart=always
+RestartSec=10
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

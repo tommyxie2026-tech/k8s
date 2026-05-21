@@ -1,0 +1,19 @@
+---
+# roles/lb/handlers/main.yml
+
+- name: daemon reload
+  listen: nginx config changed
+  systemd:
+    daemon_reload: yes
+
+- name: restart nginx
+  listen: nginx config changed
+  systemd:
+    name: nginx
+    state: restarted
+
+- name: restart keepalived
+  listen: keepalived config changed
+  service:
+    name: keepalived
+    state: restarted

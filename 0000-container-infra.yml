@@ -1,0 +1,10 @@
+---
+# 0000-container-infra.yml
+# 容器模式：构建基础镜像并拉起节点容器 (仅 node_type=container 时使用)
+
+- name: 构建镜像、创建网络、拉起节点容器
+  hosts: kube_node:etcd
+  gather_facts: no
+  roles:
+    - container-infra
+  when: node_type == 'container'

@@ -1,0 +1,140 @@
+---
+# roles/kube_master/tasks/main.yml
+
+- name: 1. 创建 Kubernetes 配置、凭证及日志存储目录
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  with_items:
+    - /etc/kubernetes/ssl
+    - /var/log/kubernetes
+    - /opt/kube-apiserver/logs
+    - /opt/kube-controller-manager/logs
+    - /opt/kube-scheduler/logs
+
+- name: 2. 分发根 CA、SA 密钥对、admin 证书与 etcd-client 凭据
+  copy:
+    src: "{{ local_cluster_config_dir }}/ssl/{{ item }}"
+    dest: "/etc/kubernetes/ssl/{{ item }}"
+    mode: '0600'
+  with_items:
+    - ca.pem
+    - ca-key.pem
+    - sa.key
+    - sa.pub
+    - admin.pem
+    - admin-key.pem
+    - etcd-client.pem
+    - etcd-client-key.pem
+    - front-proxy-ca.pem
+    - front-proxy-client.pem
+    - front-proxy-client-key.pem
+
+- name: 2.1 确保 /root/.kube 目录存在
+  file:
+    path: /root/.kube
+    state: directory
+    mode: '0700'
+
+- name: 2.2 分发 admin kubeconfig 至 Master 节点
+  copy:
+    src: "{{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig"
+    dest: /root/.kube/config
+    mode: '0600'
+
+- name: 3. 在本地签发 APIServer 服务端证书
+  shell: |
+    echo '{"CN":"kubernetes","hosts":{{ MASTER_CERT_HOSTS | to_json }},"key":{"algo":"{{ cert_key_algo }}","size":{{ cert_key_size }}},"names":[{"C":"{{ cert_subject.C }}","ST":"{{ cert_subject.ST }}","L":"{{ cert_subject.L }}","O":"{{ cert_subject.O }}","OU":"{{ cert_subject.OU }}"}]}' > apiserver-csr.json
+    {{ download_arch_dir }}/cfssl gencert -ca=ca.pem -ca-key=ca-key.pem -config=ca-config.json -profile=kubernetes apiserver-csr.json | {{ download_arch_dir }}/cfssljson -bare apiserver
+  args:
+    chdir: "{{ local_cluster_config_dir }}/ssl"
+    creates: "{{ local_cluster_config_dir }}/ssl/apiserver.pem"
+  delegate_to: localhost
+  run_once: true
+
+- name: 4. 分发 APIServer TLS 证书
+  copy:
+    src: "{{ local_cluster_config_dir }}/ssl/{{ item.src }}"
+    dest: "/etc/kubernetes/ssl/{{ item.dest }}"
+    mode: '0600'
+  with_items:
+    - { src: "apiserver.pem", dest: "apiserver.pem" }
+    - { src: "apiserver-key.pem", dest: "apiserver-key.pem" }
+
+- name: 5. 渲染 API 安全审计策略文件
+  template:
+    src: audit-policy.yaml.j2
+    dest: /etc/kubernetes/audit-policy.yaml
+    mode: '0644'
+  notify: kube-apiserver config changed
+
+- name: 6. 分发 Kubernetes 控制面二进制包至 Master 节点
+  copy:
+    src: "{{ download_arch_dir }}/kubernetes-server-linux-{{ target_arch }}.tar.gz"
+    dest: /tmp/k8s-server.tar.gz
+    mode: '0644'
+
+- name: 7. 解压并安装控制面二进制文件
+  shell: |
+    tar -zxf /tmp/k8s-server.tar.gz -C /tmp
+    cp /tmp/kubernetes/server/bin/kube-apiserver /usr/local/bin/
+    cp /tmp/kubernetes/server/bin/kube-controller-manager /usr/local/bin/
+    cp /tmp/kubernetes/server/bin/kube-scheduler /usr/local/bin/
+    cp /tmp/kubernetes/server/bin/kubectl /usr/local/bin/
+    chmod +x /usr/local/bin/kube* /usr/local/bin/kubectl
+  args:
+    creates: /usr/local/bin/kube-apiserver
+  changed_when: true
+
+- name: 8. 渲染 kube-apiserver systemd 服务
+  template:
+    src: kube-apiserver.service.j2
+    dest: /etc/systemd/system/kube-apiserver.service
+    mode: '0644'
+  notify: kube-apiserver config changed
+
+- name: 9. 分发 KCM & Scheduler 专属 Kubeconfig
+  copy:
+    src: "{{ local_cluster_config_dir }}/kubeconfig/{{ item }}"
+    dest: "/etc/kubernetes/{{ item }}"
+    mode: '0600'
+  with_items:
+    - kube-controller-manager.kubeconfig
+    - kube-scheduler.kubeconfig
+
+- name: 10. 渲染 kube-controller-manager systemd 服务
+  template:
+    src: kube-controller-manager.service.j2
+    dest: /etc/systemd/system/kube-controller-manager.service
+    mode: '0644'
+  notify: kube-controller-manager config changed
+
+- name: 11. 渲染 kube-scheduler systemd 服务
+  template:
+    src: kube-scheduler.service.j2
+    dest: /etc/systemd/system/kube-scheduler.service
+    mode: '0644'
+  notify: kube-scheduler config changed
+
+- name: 12. 启动并守护 Master 控制面三核心服务
+  systemd:
+    name: "{{ item }}"
+    state: started
+    enabled: yes
+    daemon_reload: yes
+  with_items:
+    - kube-apiserver
+    - kube-controller-manager
+    - kube-scheduler
+
+- name: 13. 校验 kube-apiserver 就绪状态
+  command: >
+    {{ download_arch_dir }}/kubectl get --raw=/readyz
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: apiserver_ready
+  until: apiserver_ready.rc == 0
+  retries: 15
+  delay: 5
+  delegate_to: localhost
+  run_once: true

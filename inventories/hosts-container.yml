@@ -1,0 +1,93 @@
+# inventories/hosts-container.yml
+# 容器模式主机清单 (node_type=container)
+# 节点均为 Docker 容器，由 container-infra role 自动创建
+
+all:
+  children:
+    etcd:
+      hosts:
+        etcd-01:
+          ansible_host: 172.20.0.21
+          etcd_name: etcd-01
+        etcd-02:
+          ansible_host: 172.20.0.22
+          etcd_name: etcd-02
+        etcd-03:
+          ansible_host: 172.20.0.23
+          etcd_name: etcd-03
+
+    kube_master:
+      hosts:
+        master-01:
+          ansible_host: 172.20.0.11
+          keepalived_state: MASTER
+          keepalived_priority: 100
+        master-02:
+          ansible_host: 172.20.0.12
+          keepalived_state: BACKUP
+          keepalived_priority: 90
+        master-03:
+          ansible_host: 172.20.0.13
+          keepalived_state: BACKUP
+          keepalived_priority: 80
+
+    compute_servers:
+      hosts:
+        worker-01:
+          ansible_host: 172.20.0.31
+        worker-02:
+          ansible_host: 172.20.0.32
+
+    kube_node:
+      children:
+        kube_master:
+        compute_servers:
+
+  vars:
+    # --- 容器模式标识 ---
+    node_type: "container"
+
+    # --- 连接方式 ---
+    # docker: 通过 Docker API 直接连接容器 (本地开发/CI)
+    # ssh: 通过 SSH 连接 (需容器内运行 sshd)
+    ansible_connection: docker
+
+    # --- 容器网络 ---
+    container_network_name: "k8s-net"
+    container_network_subnet: "172.20.0.0/24"
+
+    # --- 负载均衡 (容器模式使用 nginx 本地代理，无 VIP) ---
+    LB_APISERVER_VIP: "172.20.0.11"
+    LB_APISERVER_PORT: 8443
+    LB_INTERFACE: eth0
+
+    # --- 本地配置目录 ---
+    local_cluster_config_dir: "/root/.k8s/ssl_build"
+
+    # --- 目标架构 ---
+    target_arch: "amd64"
+
+    # --- 二进制缓存 ---
+    download_dir: "{{ playbook_dir }}/files"
+    download_arch_dir: "{{ download_dir }}/{{ target_arch }}"
+
+    # --- Kubernetes 核心配置 ---
+    SERVICE_CIDR: 10.96.0.0/16
+    CLUSTER_CIDR: 10.244.0.0/16
+    CLUSTER_DNS_SVC_IP: 10.96.0.10
+    CLUSTER_DOMAIN: cluster.local
+
+    # --- API 证书 SAN ---
+    MASTER_CERT_HOSTS:
+      - 172.20.0.11
+      - 172.20.0.12
+      - 172.20.0.13
+      - 10.96.0.1
+      - kubernetes
+      - kubernetes.default
+      - kubernetes.default.svc
+      - kubernetes.default.svc.cluster.local
+
+    # --- 容器运行时 ---
+    CONTAINERD_CGROUP_DRIVER: systemd
+    SANDBOX_IMAGE: "registry.k8s.io/pause:3.10.2"
