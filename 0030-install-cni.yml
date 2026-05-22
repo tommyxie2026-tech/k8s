@@ -11,6 +11,8 @@
       - "{{ download_arch_dir }}/kubectl"
       - "{{ download_arch_dir }}/cni-plugins-linux-{{ target_arch }}-v{{ cni_plugins_version }}.tgz"
       - "{{ download_arch_dir }}/calico.yaml"
+      - "{{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig"
+      - "{{ local_cluster_config_dir }}/kubeconfig/kube-proxy.kubeconfig"
   pre_tasks:
     - name: 校验本地二进制缓存已准备
       include_role:
@@ -49,12 +51,17 @@
       command: >
         {{ download_arch_dir }}/kubectl get nodes
         --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
-        --no-headers
+        -o jsonpath='{range .items[*]}{.metadata.name}{" "}{range .status.conditions[?(@.type=="Ready")]}{.status}{end}{"\n"}{end}'
       register: nodes_output
       until: >
-        nodes_output.stdout_lines | length > 0
-        and nodes_output.stdout_lines | map('regex_replace', '^\\S+\\s+(\\S+).*', '\\1')
-        | select('equalto', 'NotReady') | list | length == 0
+        nodes_output.rc == 0
+        and nodes_output.stdout_lines | length > 0
+        and (
+          nodes_output.stdout_lines
+          | reject('match', '^\\S+\\s+True$')
+          | list
+          | length
+        ) == 0
       retries: 30
       delay: 10
       changed_when: false

@@ -14,7 +14,7 @@
 
 - name: 下载 cfssl
   get_url:
-    url: "https://github.com/cloudflare/cfssl/releases/download/v{{ cfssl_version }}/cfssl_{{ ansible_system | lower }}_{{ target_arch }}"
+    url: "https://github.com/cloudflare/cfssl/releases/download/v{{ cfssl_version }}/cfssl_{{ cfssl_version }}_{{ controller_os }}_{{ controller_arch }}"
     dest: "{{ download_arch_dir }}/cfssl"
     mode: '0755'
   delegate_to: localhost
@@ -22,7 +22,7 @@
 
 - name: 下载 cfssljson
   get_url:
-    url: "https://github.com/cloudflare/cfssl/releases/download/v{{ cfssl_version }}/cfssljson_{{ ansible_system | lower }}_{{ target_arch }}"
+    url: "https://github.com/cloudflare/cfssl/releases/download/v{{ cfssl_version }}/cfssljson_{{ cfssl_version }}_{{ controller_os }}_{{ controller_arch }}"
     dest: "{{ download_arch_dir }}/cfssljson"
     mode: '0755'
   delegate_to: localhost
@@ -30,7 +30,7 @@
 
 - name: 下载 kubectl
   get_url:
-    url: "https://dl.k8s.io/release/v{{ kubernetes_version }}/bin/{{ ansible_system | lower }}/{{ target_arch }}/kubectl"
+    url: "https://dl.k8s.io/release/v{{ kubernetes_version }}/bin/{{ controller_os }}/{{ controller_arch }}/kubectl"
     dest: "{{ download_arch_dir }}/kubectl"
     mode: '0755'
   delegate_to: localhost

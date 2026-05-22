@@ -30,11 +30,12 @@
 
 ### 版本基线
 
-以下版本是本仓库在 2026-05-21 锁定并验证语法通过的部署基线，不自动跟随上游最新版本。版本统一在 `inventories/group_vars/all.yml` 中维护：
+以下版本是本仓库在 2026-05-22 锁定并验证语法通过的部署基线，不自动跟随上游最新版本。版本统一在 `inventories/group_vars/all.yml` 中维护：
 
 | 组件 | 当前变量 | 当前值 |
 |---|---|---|
 | Kubernetes | `kubernetes_version` | `1.36.1` |
+| CFSSL | `cfssl_version` | `1.6.5` |
 | etcd | `etcd_version` | `3.6.11` |
 | containerd | `containerd_version` | `2.3.0` |
 | runc | `runc_version` | `1.3.5` |
@@ -97,7 +98,7 @@
 
 - **LB 先行原则**：`0005-install-lb.yml` 必须在控制面（kube-apiserver）和组件启动前完成部署，以保证 `kube-controller-manager`、`kube-scheduler` 启动时能够通过已配置的 `kubeconfig` 成功连接负载均衡的 VIP，避免启动报错。
 - `0001-download-binaries.yml` 是当前实现链路中的前置缓存预热步骤。若直接执行 `0002-common-kubeconfig.yml`、`0010-create-manager-set.yml`、`0012-manager-set-kube.yml`、`0020-create-compute-set.yml` 或 `0030-install-cni.yml`，必须确保 `files/<arch>/` 已存在对应二进制和清单。
-- 依赖本地缓存的入口 playbook 已内置 preflight 检查；缓存缺失时会在执行具体 role 前终止，并提示先运行 `0001-download-binaries.yml`。
+- 依赖本地缓存或生成物的入口 playbook 已内置 preflight 检查；缓存、证书或 kubeconfig 缺失时会在执行具体 role 前终止，并提示先运行对应前置 playbook。
 - `0010-create-manager-set.yml` 中还包含非 Kubernetes 标准 role。本文只讨论其中的 `etcd` 与 `kube_master`。
 - `0012-manager-set-kube.yml` 和 `0020-create-compute-set.yml` 中包含的 `kubelet` 角色会在节点完成注册。只有在 CNI 网络组件部署后，节点才会真正转为 `Ready` 状态。
 
@@ -150,7 +151,7 @@
 主要动作：
 
 1. 创建 `{{ local_cluster_config_dir }}/ssl` 证书存储目录。
-2. 使用 `files/<arch>/cfssl`、`files/<arch>/cfssljson` 与 `files/<arch>/kubectl` 的绝对路径生成证书和 kubeconfig；不会向控制机 `/usr/local/bin` 写入工具。
+2. 使用 `files/<arch>/cfssl`、`files/<arch>/cfssljson` 与 `files/<arch>/kubectl` 的绝对路径生成证书和 kubeconfig；不会向控制机 `/usr/local/bin` 写入工具。控制机工具按控制机 OS/架构下载，目标节点二进制仍按 `target_arch` 下载。
 3. 检查 `ca.pem` 是否存在，若不存在则生成 CA 密钥对。
 4. 生成 Service Account 专用非对称密钥对 `sa.key` 和 `sa.pub`（禁止与 CA 密钥对混用以确保系统安全）。
 5. 生成 aggregator front-proxy CA 与 `front-proxy-client` 证书，用于 Kubernetes Aggregated API（如 Metrics API）请求头代理认证。
@@ -357,7 +358,7 @@ systemctl is-active kube-scheduler
 
 1. 渲染容器运行时配置 `/etc/containerd/config.toml`。
 2. 当前 `containerd_version` 为 2.x，`config.toml` 使用 `version = 3` 与 `io.containerd.cri.v1.*` 配置路径；不要回退到 containerd 1.x 的 `io.containerd.grpc.v1.cri` 配置路径。
-3. **Cgroup 驱动对齐**：必须在 `config.toml` 中显式配置 `SystemdCgroup = true`。
+3. **Cgroup 驱动对齐**：`SystemdCgroup` 根据 `CONTAINERD_CGROUP_DRIVER` 渲染，生产环境应保持 `systemd`。
 4. **Sandbox 镜像重定向**：将默认的 `pause` 镜像地址显式配置为 `registry.k8s.io/pause:3.10.2`；受限网络环境应在私有镜像仓库同步该镜像后覆盖 `SANDBOX_IMAGE`。
 5. 启用并启动 `containerd.service`。
 
@@ -378,7 +379,7 @@ crictl info | grep -i cgroup
 
 1. 静态签发该节点的 `kubelet.pem` 证书，并生成 `kubelet.kubeconfig`（其 server 同样指向 `LB_APISERVER_VIP:LB_APISERVER_PORT`）。
 2. 渲染 `/opt/kubelet/config.yaml`，指定参数：
-   - `cgroupDriver: systemd` (**必须与 containerd 保持绝对一致**)
+   - `cgroupDriver: {{ CONTAINERD_CGROUP_DRIVER }}` (**必须与 containerd 保持绝对一致**)
    - `containerRuntimeEndpoint: unix:///run/containerd/containerd.sock` (**Kubernetes 1.36 兼容写法，禁止继续使用已移除的 `--container-runtime` 启动参数**)
 3. 启动并守护 `kubelet.service`。
 4. **服务状态与注册校验**：轮询 `kubelet` systemd 状态并检查节点是否成功在控制面完成注册（此时节点因为没有部署 CNI，状态应为 `NotReady`，Ansible 任务在此处**不可死等 Ready 状态**，只需确保服务 active 且节点已注册即可）。
@@ -403,7 +404,7 @@ kubectl get node -o wide
 4. **无需重启 kubelet 提示**：Kubelet 启动后利用内核 inotify 机制自动感知 `/etc/cni/net.d` 目录下的 CNI 配置文件，**在 CNI 下发部署后，无需执行任何 kubelet 服务重启操作**，节点网络将平滑通达。
 5. 部署 `CoreDNS` (提供内部域名解析)，所有 `kubectl apply` 必须显式使用 `{{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig`，禁止依赖控制机默认 kubeconfig。
 6. 部署 `kube-proxy`：默认以 DaemonSet 方式发布；如设置 `kube_proxy_deploy_mode=systemd`，则使用 5.2 节生成的专属 `kube-proxy.kubeconfig` 在各节点部署 systemd 服务。
-7. **轮询 Ready 状态**：等待 CNI、CoreDNS 与 kube-proxy 完成部署，网络平面通达，轮询所有 Node 的状态直至变为 `Ready`。
+7. **轮询 Ready 状态**：等待 CNI、CoreDNS 与 kube-proxy 完成部署，网络平面通达，轮询所有 Node 的 Ready condition 均为 `True`，禁止把 `Unknown` 或其他非 Ready 状态误判为成功。
 
 校验：
 

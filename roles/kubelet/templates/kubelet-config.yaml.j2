@@ -12,7 +12,7 @@ authorization:
 clusterDomain: "{{ CLUSTER_DOMAIN }}"
 clusterDNS:
   - "{{ CLUSTER_DNS_SVC_IP }}"
-cgroupDriver: systemd
+cgroupDriver: "{{ CONTAINERD_CGROUP_DRIVER }}"
 containerRuntimeEndpoint: "unix:///run/containerd/containerd.sock"
 failSwapOn: true
 healthzBindAddress: "0.0.0.0"
