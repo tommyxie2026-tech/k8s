@@ -5,6 +5,12 @@
 download_dir: "{{ playbook_dir }}/files"
 download_arch_dir: "{{ download_dir }}/{{ target_arch }}"
 download_timeout: 60
+download_retries: 3
+download_retry_delay: 5
+
+# Optional checksum map. Fill with values such as "sha256:<digest>" to enforce supply-chain verification.
+download_checksums: {}
+
 controller_os: "{{ ansible_system | lower }}"
 controller_arch: >-
   {{ 'amd64' if ansible_architecture in ['x86_64', 'amd64'] else
