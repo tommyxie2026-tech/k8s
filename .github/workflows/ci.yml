@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  ansible-syntax:
+    name: Ansible syntax checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Ansible and collections
+        run: |
+          python -m pip install --upgrade pip
+          pip install ansible-core
+          ansible-galaxy collection install community.docker
+
+      - name: Show Ansible version
+        run: ansible --version
+
+      - name: Syntax check playbooks with container inventory
+        run: |
+          set -euo pipefail
+          for playbook in \
+            0000-container-infra.yml \
+            0000-preflight.yml \
+            0001-download-binaries.yml \
+            0000-common-service.yml \
+            0002-common-kubeconfig.yml \
+            0005-install-lb.yml \
+            0010-create-manager-set.yml \
+            0012-manager-set-kube.yml \
+            0020-create-compute-set.yml \
+            0030-install-cni.yml; do
+            echo "==> syntax check: ${playbook}"
+            ansible-playbook -i inventories/hosts-container.yml --syntax-check "${playbook}"
+          done
