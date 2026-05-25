@@ -4,6 +4,7 @@
 
 download_dir: "{{ playbook_dir }}/files"
 download_arch_dir: "{{ download_dir }}/{{ target_arch }}"
+download_timeout: 60
 controller_os: "{{ ansible_system | lower }}"
 controller_arch: >-
   {{ 'amd64' if ansible_architecture in ['x86_64', 'amd64'] else
