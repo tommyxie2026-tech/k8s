@@ -78,9 +78,14 @@ jobs:
           BUILD_COMPONENTS: ${{ inputs.components }}
         run: bash scripts/build-default-binaries.sh
 
+      - name: Generate download checksum vars
+        run: |
+          python scripts/generate-download-checksums.py --arch "${{ inputs.arch }}"
+
       - name: Show built files
         run: |
           find "files/${{ inputs.arch }}" -maxdepth 2 -type f -printf '%p %s bytes\n' | sort
+          find inventories/group_vars -maxdepth 1 -type f -name 'download-checksums-${{ inputs.arch }}.yml' -print -exec cat {} \;
 
       - name: Prepare binary cache branch
         if: ${{ inputs.commit_changes == 'true' }}
@@ -93,7 +98,7 @@ jobs:
           else
             git checkout --orphan "${TARGET_BRANCH}"
             git rm -rf . || true
-            git checkout "${{ github.sha }}" -- .gitattributes scripts/build-default-binaries.sh scripts/package-built-binaries.sh repo/sources.yml || true
+            git checkout "${{ github.sha }}" -- .gitattributes scripts/build-default-binaries.sh scripts/package-built-binaries.sh scripts/generate-download-checksums.py repo/sources.yml || true
           fi
 
       - name: Copy built cache into cache branch
@@ -103,9 +108,11 @@ jobs:
           ARCH="${{ inputs.arch }}"
           TMP_CACHE="$(mktemp -d)"
           cp -a "files/${ARCH}" "${TMP_CACHE}/"
-          mkdir -p files
+          cp -a "inventories/group_vars/download-checksums-${ARCH}.yml" "${TMP_CACHE}/download-checksums-${ARCH}.yml"
+          mkdir -p files inventories/group_vars
           rm -rf "files/${ARCH}"
           cp -a "${TMP_CACHE}/${ARCH}" "files/${ARCH}"
+          cp -a "${TMP_CACHE}/download-checksums-${ARCH}.yml" "inventories/group_vars/download-checksums-${ARCH}.yml"
           rm -rf "${TMP_CACHE}"
 
       - name: Commit built binary cache
@@ -113,7 +120,7 @@ jobs:
         run: |
           set -euo pipefail
           TARGET_BRANCH="${{ inputs.target_branch }}"
-          git add .gitattributes "files/${{ inputs.arch }}"
+          git add .gitattributes "files/${{ inputs.arch }}" "inventories/group_vars/download-checksums-${{ inputs.arch }}.yml"
           if git diff --cached --quiet; then
             echo "No built binary cache changes to commit."
           else
