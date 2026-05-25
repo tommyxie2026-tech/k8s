@@ -6,5 +6,5 @@
   hosts: kube_node:etcd
   gather_facts: no
   roles:
-    - container-infra
-  when: node_type == 'container'
+    - role: container-infra
+      when: node_type == 'container'
