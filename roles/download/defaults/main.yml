@@ -5,7 +5,7 @@
 download_dir: "{{ playbook_dir }}/files"
 download_arch_dir: "{{ download_dir }}/{{ target_arch }}"
 
-# If true, download role only reports existing cache files and never fetches missing files.
+# If true, download role only validates existing files/<arch>/ cache and never fetches missing files.
 offline_binary_cache_only: false
 
 download_timeout: 60
@@ -14,6 +14,19 @@ download_retry_delay: 5
 
 # Optional checksum map. Fill with values such as "sha256:<digest>" to enforce supply-chain verification.
 download_checksums: {}
+
+download_expected_files:
+  - cfssl
+  - cfssljson
+  - kubectl
+  - "etcd-v{{ etcd_version }}-linux-{{ target_arch }}.tar.gz"
+  - "kubernetes-server-linux-{{ target_arch }}.tar.gz"
+  - "kubernetes-node-linux-{{ target_arch }}.tar.gz"
+  - "containerd-{{ containerd_version }}-linux-{{ target_arch }}.tar.gz"
+  - runc
+  - containerd.service
+  - "cni-plugins-linux-{{ target_arch }}-v{{ cni_plugins_version }}.tgz"
+  - calico.yaml
 
 controller_os: "{{ ansible_system | lower }}"
 controller_arch: >-
