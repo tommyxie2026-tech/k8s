@@ -1,0 +1,120 @@
+---
+# 0000-preflight.yml
+# 部署前置检查：尽早发现控制机、目标节点、端口和系统能力问题。
+
+- name: 控制机前置检查
+  hosts: localhost
+  gather_facts: yes
+  tasks:
+    - name: 检查 Ansible 版本
+      assert:
+        that:
+          - ansible_version.full is version('2.9', '>=')
+        fail_msg: "Ansible 版本过低，请安装 Ansible >= 2.9。"
+        success_msg: "Ansible 版本满足要求。"
+
+    - name: 检查目标架构变量
+      assert:
+        that:
+          - target_arch is defined
+          - target_arch in ['amd64', 'arm64']
+        fail_msg: "target_arch 必须设置为 amd64 或 arm64。"
+        success_msg: "target_arch 设置合法。"
+
+    - name: 检查二进制缓存目录变量
+      assert:
+        that:
+          - download_dir is defined
+          - download_arch_dir is defined
+        fail_msg: "download_dir/download_arch_dir 未定义。"
+        success_msg: "下载目录变量已定义。"
+
+    - name: 检查容器模式依赖变量
+      assert:
+        that:
+          - container_network_name is defined
+          - container_network_subnet is defined
+        fail_msg: "容器模式需要 container_network_name/container_network_subnet。"
+        success_msg: "容器模式网络变量已定义。"
+      when: node_type | default('machine') == 'container'
+
+- name: Kubernetes 节点前置检查
+  hosts: kube_node:etcd
+  gather_facts: yes
+  tasks:
+    - name: 检查节点连接与基础事实采集
+      assert:
+        that:
+          - ansible_hostname is defined
+          - ansible_os_family is defined
+        fail_msg: "无法采集目标节点基础信息，请检查连接方式、权限和 Python 环境。"
+        success_msg: "节点基础信息采集成功。"
+
+    - name: 检查系统是否支持 systemd
+      stat:
+        path: /run/systemd/system
+      register: systemd_runtime
+
+    - name: 校验 systemd 运行环境
+      assert:
+        that:
+          - systemd_runtime.stat.exists
+        fail_msg: "目标节点未检测到 systemd 运行环境。"
+        success_msg: "systemd 运行环境存在。"
+
+    - name: 检查关键网络变量
+      assert:
+        that:
+          - SERVICE_CIDR is defined
+          - CLUSTER_CIDR is defined
+          - CLUSTER_DNS_SVC_IP is defined
+          - CLUSTER_DOMAIN is defined
+          - LB_APISERVER_VIP is defined
+          - LB_APISERVER_PORT is defined
+        fail_msg: "集群网络或 LB 变量未完整定义。"
+        success_msg: "集群网络与 LB 变量已定义。"
+
+    - name: 检查机器模式的网卡变量
+      assert:
+        that:
+          - LB_INTERFACE is defined
+          - LB_INTERFACE in ansible_interfaces
+        fail_msg: "机器模式下 LB_INTERFACE 未定义或目标节点不存在该网卡。"
+        success_msg: "LB_INTERFACE 检查通过。"
+      when: node_type | default('machine') == 'machine' and inventory_hostname in groups['kube_master']
+
+    - name: 检查机器模式 Swap 状态
+      command: swapon --summary
+      register: swap_summary
+      changed_when: false
+      failed_when: false
+      when: node_type | default('machine') == 'machine'
+
+    - name: 提醒关闭 Swap
+      assert:
+        that:
+          - swap_summary.stdout | length == 0
+        fail_msg: "检测到 Swap 已启用。后续 common role 会尝试关闭，但生产环境建议预先确认。"
+        success_msg: "Swap 未启用。"
+      when: node_type | default('machine') == 'machine'
+
+    - name: 检查关键端口是否已被占用
+      wait_for:
+        host: "{{ ansible_host | default(inventory_hostname) }}"
+        port: "{{ item }}"
+        state: stopped
+        timeout: 2
+      loop:
+        - 2379
+        - 2380
+        - 6443
+        - 8443
+        - 10250
+      register: port_checks
+      failed_when: false
+      changed_when: false
+
+    - name: 输出端口占用检查结果
+      debug:
+        msg: "如果端口检查失败，请确认该节点是否已有旧集群组件或冲突服务。"
+      when: port_checks is failed
