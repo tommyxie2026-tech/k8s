@@ -1,7 +1,7 @@
 ---
 # 0091-reset-node-runtime.yml
 # 清理 Kubernetes 节点运行态：不删除证书、不删除 kubeconfig、不删除 etcd 数据。
-# 使用前建议先执行 0090-stop-services.yml。
+# 默认直接失败退出；必须通过 -e confirm_reset_node_runtime=true 显式确认后才会执行清理。
 
 - name: 清理 Kubernetes 节点运行态
   hosts: kube_node
@@ -19,12 +19,14 @@
       - /run/calico
       - /run/containerd/io.containerd.runtime.v2.task/k8s.io
   tasks:
-    - name: 要求显式确认清理节点运行态
+    - name: 阻断未显式确认的节点运行态清理
       assert:
         that:
           - confirm_reset_node_runtime | bool
-        fail_msg: "该操作会清理 kubelet/CNI/containerd 运行态目录。请通过 -e confirm_reset_node_runtime=true 显式确认。"
-        success_msg: "已确认清理节点运行态。"
+        fail_msg: >-
+          拒绝执行：该操作会清理 kubelet/CNI/containerd 运行态目录。
+          必须通过 -e confirm_reset_node_runtime=true 显式确认后才会继续。
+        success_msg: "已收到显式确认：开始清理节点运行态。"
 
     - name: 输出即将清理的路径
       debug:
