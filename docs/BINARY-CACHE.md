@@ -64,6 +64,22 @@ bash scripts/download-default-binaries.sh
 
 然后将 `files/<arch>/` 下的文件提交到 `target_branch`。
 
+## 从源码构建并提交到缓存分支
+
+也可以运行：
+
+```text
+Build default binaries
+```
+
+它会读取：
+
+```text
+repo/sources.yml
+```
+
+从源码 tag 编译二进制，并打包为当前部署脚本兼容的 release-like 归档包。
+
 ## 从缓存分支同步到部署工作区
 
 在部署机上先安装 Git LFS，然后执行：
@@ -79,6 +95,29 @@ ARCH=amd64 CACHE_BRANCH=binary-cache/amd64 bash scripts/sync-binary-cache-branch
 2. 从分支中导出 `files/<arch>/`。
 3. 同步到当前工作区的 `files/<arch>/`。
 4. 如果存在 `SHA256SUMS`，自动执行 `sha256sum -c SHA256SUMS`。
+
+## 离线部署模式
+
+当 `files/<arch>/` 已经准备完整，可以启用严格离线模式：
+
+```bash
+ansible-playbook -i inventories/hosts-single.yml 0001-download-binaries.yml -e offline_binary_cache_only=true
+```
+
+或直接使用 Makefile：
+
+```bash
+make deploy-single-offline
+make deploy-container-offline
+```
+
+`offline_binary_cache_only=true` 时：
+
+- 不访问公网。
+- 不执行任何 `get_url` 下载。
+- 只检查 `download_expected_files` 是否全部存在。
+- 如果存在 `SHA256SUMS`，执行 `sha256sum -c SHA256SUMS`。
+- 缺失任何必要文件都会立即失败。
 
 ## 本地下载
 
@@ -122,14 +161,14 @@ download_arch_dir: "{{ download_dir }}/{{ target_arch }}"
 offline_binary_cache_only: false
 ```
 
-后续可以将 `offline_binary_cache_only` 设为 `true`，使部署严格依赖仓库内缓存，不允许联网下载缺失文件。
+设为 `true` 后，download role 会进入严格离线校验模式。
 
 ## 校验
 
-下载脚本会生成：
+下载脚本和源码构建脚本都会生成：
 
 ```text
 files/<arch>/SHA256SUMS
 ```
 
-用于记录当前缓存文件的 sha256 摘要。后续可将其与 `download_checksums` 变量联动，实现更严格的供应链校验。
+用于记录当前缓存文件的 sha256 摘要。离线模式会自动校验该文件。
