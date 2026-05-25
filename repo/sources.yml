@@ -10,7 +10,7 @@ components:
     tag: "v1.36.1"
     build:
       type: make
-      command: "make WHAT=cmd/kube-apiserver WHAT=cmd/kube-controller-manager WHAT=cmd/kube-scheduler WHAT=cmd/kubelet WHAT=cmd/kube-proxy WHAT=cmd/kubectl"
+      command: "make WHAT='cmd/kube-apiserver cmd/kube-controller-manager cmd/kube-scheduler cmd/kubelet cmd/kube-proxy cmd/kubectl'"
       env:
         KUBE_BUILD_PLATFORMS: "linux/{{ arch }}"
     outputs:
