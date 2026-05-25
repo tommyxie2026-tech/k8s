@@ -3,13 +3,13 @@ FROM ubuntu:22.04
 ENV DEBIAN_FRONTEND=noninteractive
 ENV container=docker
 
-# systemd + SSH + Python + 基础工具
+# systemd + Python + 基础工具
+# 容器模式使用 ansible_connection=docker 直接管理容器，不再内置 sshd/root 免密登录。
 RUN apt-get update && apt-get install -y \
     systemd \
     systemd-sysv \
     python3 \
     python3-pip \
-    openssh-server \
     sudo \
     ca-certificates \
     curl \
@@ -28,15 +28,6 @@ RUN cd /lib/systemd/system/sysinit.target.wants/ && \
     rm -f /lib/systemd/system/anaconda.target.wants/* && \
     rm -f /lib/systemd/system/plymouth* && \
     rm -f /lib/systemd/system/systemd-update-utmp*
-
-# SSH 配置
-RUN mkdir -p /run/sshd && \
-    ssh-keygen -A && \
-    sed -i 's/#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config && \
-    sed -i 's/#PermitEmptyPasswords.*/PermitEmptyPasswords yes/' /etc/ssh/sshd_config
-
-# 免密 root 登录 (用于 Ansible SSH 连接，生产环境应替换为密钥)
-RUN passwd -d root
 
 VOLUME ["/sys/fs/cgroup", "/tmp", "/run", "/run/lock", "/var/log"]
 
