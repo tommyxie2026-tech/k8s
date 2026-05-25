@@ -16,6 +16,7 @@ PLAYBOOKS=(
   0030-install-cni.yml
   0040-etcd-snapshot.yml
   0090-stop-services.yml
+  0091-reset-node-runtime.yml
   0099-container-cleanup.yml
 )
 
