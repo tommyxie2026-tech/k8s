@@ -1,0 +1,113 @@
+---
+# repo/sources.yml
+# 默认二进制源码仓库、tag 与构建产物清单。
+# git 字段可以替换为内部 GitLab mirror 地址。
+
+components:
+  - component: kubernetes
+    version: "1.36.1"
+    git: "https://github.com/kubernetes/kubernetes.git"
+    tag: "v1.36.1"
+    build:
+      type: make
+      command: "make WHAT=cmd/kube-apiserver WHAT=cmd/kube-controller-manager WHAT=cmd/kube-scheduler WHAT=cmd/kubelet WHAT=cmd/kube-proxy WHAT=cmd/kubectl"
+      env:
+        KUBE_BUILD_PLATFORMS: "linux/{{ arch }}"
+    outputs:
+      - src: "_output/bin/kube-apiserver"
+        dest: "kube-apiserver"
+      - src: "_output/bin/kube-controller-manager"
+        dest: "kube-controller-manager"
+      - src: "_output/bin/kube-scheduler"
+        dest: "kube-scheduler"
+      - src: "_output/bin/kubelet"
+        dest: "kubelet"
+      - src: "_output/bin/kube-proxy"
+        dest: "kube-proxy"
+      - src: "_output/bin/kubectl"
+        dest: "kubectl"
+
+  - component: etcd
+    version: "3.6.11"
+    git: "https://github.com/etcd-io/etcd.git"
+    tag: "v3.6.11"
+    build:
+      type: shell
+      command: "./build.sh"
+      env:
+        GOOS: linux
+        GOARCH: "{{ arch }}"
+    outputs:
+      - src: "bin/etcd"
+        dest: "etcd"
+      - src: "bin/etcdctl"
+        dest: "etcdctl"
+
+  - component: containerd
+    version: "2.3.0"
+    git: "https://github.com/containerd/containerd.git"
+    tag: "v2.3.0"
+    build:
+      type: make
+      command: "make binaries"
+      env:
+        GOOS: linux
+        GOARCH: "{{ arch }}"
+    outputs:
+      - src: "bin/containerd"
+        dest: "containerd"
+      - src: "bin/containerd-shim-runc-v2"
+        dest: "containerd-shim-runc-v2"
+      - src: "bin/ctr"
+        dest: "ctr"
+
+  - component: runc
+    version: "1.3.5"
+    git: "https://github.com/opencontainers/runc.git"
+    tag: "v1.3.5"
+    build:
+      type: make
+      command: "make runc"
+      env:
+        GOOS: linux
+        GOARCH: "{{ arch }}"
+    outputs:
+      - src: "runc"
+        dest: "runc"
+
+  - component: cni-plugins
+    version: "1.9.1"
+    git: "https://github.com/containernetworking/plugins.git"
+    tag: "v1.9.1"
+    build:
+      type: shell
+      command: "./build_linux.sh"
+      env:
+        GOOS: linux
+        GOARCH: "{{ arch }}"
+    outputs:
+      - src: "bin"
+        dest: "cni-plugins"
+        archive: "cni-plugins-linux-{{ arch }}-v1.9.1.tgz"
+
+  - component: cfssl
+    version: "1.6.5"
+    git: "https://github.com/cloudflare/cfssl.git"
+    tag: "v1.6.5"
+    build:
+      type: make
+      command: "make bin/cfssl bin/cfssljson"
+      env:
+        GOOS: linux
+        GOARCH: "{{ arch }}"
+    outputs:
+      - src: "bin/cfssl"
+        dest: "cfssl"
+      - src: "bin/cfssljson"
+        dest: "cfssljson"
+
+manifests:
+  - component: calico
+    version: "3.32.0"
+    source: "https://raw.githubusercontent.com/projectcalico/calico/v3.32.0/manifests/calico.yaml"
+    dest: "calico.yaml"
