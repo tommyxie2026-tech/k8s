@@ -19,6 +19,8 @@ repo/
 
 scripts/
   build-default-binaries.sh
+  package-built-binaries.sh
+  generate-download-checksums.py
 
 .github/workflows/
   build-default-binaries.yml
@@ -68,18 +70,109 @@ Build default binaries
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
 | `arch` | `amd64` | 目标架构，例如 `amd64` 或 `arm64` |
-| `components` | `all` | 组件列表，逗号分隔，例如 `cfssl,runc` |
+| `stage` | `stage1-light` | 分阶段构建入口 |
+| `components` | 空 | `stage=custom` 时传入组件列表 |
 | `target_branch` | `binary-cache/amd64` | 编译产物提交分支 |
 | `commit_changes` | `true` | 是否提交产物 |
+| `strict_package` | `false` | 是否要求完整部署归档全部存在 |
 
-示例：
+## 分阶段 CI 构建顺序
+
+为了通过 CI 逐步完成构建，建议按下面顺序手动运行同一个 workflow。所有阶段使用同一个 `target_branch`，workflow 会先从目标缓存分支恢复已有 `files/<arch>/`，再增量构建当前阶段的组件，最后重新生成 `SHA256SUMS` 和 `download-checksums-<arch>.yml`。
+
+### 阶段一：轻量组件
 
 ```text
 arch=amd64
-components=cfssl,runc,cni-plugins
-target_branch=binary-cache/amd64-build-test
+stage=stage1-light
+target_branch=binary-cache/amd64
 commit_changes=true
+strict_package=false
 ```
+
+该阶段构建：
+
+```text
+cfssl,runc
+```
+
+目标：验证 CI、Git LFS、源码 tag checkout、构建脚本和缓存分支提交链路。
+
+### 阶段二：CNI 与 etcd
+
+```text
+arch=amd64
+stage=stage2-core
+target_branch=binary-cache/amd64
+commit_changes=true
+strict_package=false
+```
+
+该阶段构建：
+
+```text
+cni-plugins,etcd
+```
+
+目标：补齐 CNI 归档包与 etcd release-like 包。
+
+### 阶段三：containerd
+
+```text
+arch=amd64
+stage=stage3-runtime
+target_branch=binary-cache/amd64
+commit_changes=true
+strict_package=false
+```
+
+该阶段构建：
+
+```text
+containerd
+```
+
+目标：补齐 containerd release-like 包。
+
+### 阶段四：Kubernetes
+
+```text
+arch=amd64
+stage=stage4-kubernetes
+target_branch=binary-cache/amd64
+commit_changes=true
+strict_package=true
+```
+
+该阶段构建：
+
+```text
+kubernetes
+```
+
+此阶段会恢复前面阶段已提交的产物，因此 `strict_package=true` 可以用于校验最终部署所需归档是否完整。
+
+## 自定义阶段
+
+如果需要只构建某几个组件：
+
+```text
+arch=amd64
+stage=custom
+components=cfssl,runc
+target_branch=binary-cache/amd64-test
+commit_changes=true
+strict_package=false
+```
+
+如果需要一次性全部构建：
+
+```text
+stage=all
+strict_package=true
+```
+
+不建议第一次就使用 `stage=all`，尤其是 GitHub hosted runner。
 
 ## 本地执行
 
@@ -88,10 +181,10 @@ python3 -m pip install pyyaml
 ARCH=amd64 BUILD_COMPONENTS=cfssl,runc bash scripts/build-default-binaries.sh
 ```
 
-全部构建：
+完整构建并严格检查部署归档：
 
 ```bash
-ARCH=amd64 BUILD_COMPONENTS=all bash scripts/build-default-binaries.sh
+ARCH=amd64 BUILD_COMPONENTS=all STRICT_PACKAGE=true bash scripts/build-default-binaries.sh
 ```
 
 输出：
@@ -101,47 +194,30 @@ files/amd64/
   cfssl
   cfssljson
   runc
-  ...
+  kubernetes-server-linux-amd64.tar.gz
+  kubernetes-node-linux-amd64.tar.gz
+  etcd-v3.6.11-linux-amd64.tar.gz
+  containerd-2.3.0-linux-amd64.tar.gz
+  cni-plugins-linux-amd64-v1.9.1.tgz
   SHA256SUMS
+
+inventories/group_vars/download-checksums-amd64.yml
 ```
 
-## 推荐落地顺序
+## CI 构建后的离线部署
 
-因为 Kubernetes、containerd、etcd 编译较重，不建议第一次就 `components=all`。
+阶段四完成后，在部署机同步缓存分支：
 
-建议分阶段：
-
-### 阶段一：轻量组件验证
-
-```text
-components=cfssl,runc
+```bash
+git lfs install
+ARCH=amd64 CACHE_BRANCH=binary-cache/amd64 bash scripts/sync-binary-cache-branch.sh
 ```
 
-目标：验证 manifest、CI、Git LFS、缓存分支提交链路。
+然后执行：
 
-### 阶段二：CNI 与 etcd
-
-```text
-components=cni-plugins,etcd
+```bash
+make deploy-single-offline
 ```
-
-目标：验证 Go 多模块项目构建和归档逻辑。
-
-### 阶段三：containerd
-
-```text
-components=containerd
-```
-
-目标：验证运行时构建依赖，例如 libseccomp。
-
-### 阶段四：Kubernetes
-
-```text
-components=kubernetes
-```
-
-Kubernetes 编译最重，建议使用 self-hosted runner 或更大规格 runner。
 
 ## Runner 建议
 
@@ -214,7 +290,11 @@ files/<arch>/
 files/<arch>/SHA256SUMS
 ```
 
-后续可以将 `SHA256SUMS` 自动转换为 `download_checksums`，让部署过程强制校验。
+随后生成：
+
+```text
+inventories/group_vars/download-checksums-<arch>.yml
+```
 
 ## 风险与注意事项
 
