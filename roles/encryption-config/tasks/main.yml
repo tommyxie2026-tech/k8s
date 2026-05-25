@@ -1,0 +1,66 @@
+---
+# roles/encryption-config/tasks/main.yml
+# 生成并分发 kube-apiserver Secret 静态加密配置。
+
+- name: 创建本地 encryption 配置目录
+  file:
+    path: "{{ local_cluster_config_dir }}"
+    state: directory
+    mode: '0700'
+  delegate_to: localhost
+  run_once: true
+  when: kube_apiserver_encryption_enabled | bool
+
+- name: 检查本地 encryption key 是否已存在
+  stat:
+    path: "{{ kube_apiserver_encryption_key_file }}"
+  register: encryption_key_stat
+  delegate_to: localhost
+  run_once: true
+  when: kube_apiserver_encryption_enabled | bool
+
+- name: 生成本地 encryption key
+  shell: "head -c 32 /dev/urandom | base64 > {{ kube_apiserver_encryption_key_file }}"
+  args:
+    creates: "{{ kube_apiserver_encryption_key_file }}"
+  delegate_to: localhost
+  run_once: true
+  when: kube_apiserver_encryption_enabled | bool and not encryption_key_stat.stat.exists
+
+- name: 设置本地 encryption key 权限
+  file:
+    path: "{{ kube_apiserver_encryption_key_file }}"
+    mode: '0600'
+  delegate_to: localhost
+  run_once: true
+  when: kube_apiserver_encryption_enabled | bool
+
+- name: 读取本地 encryption key
+  slurp:
+    src: "{{ kube_apiserver_encryption_key_file }}"
+  register: encryption_key_content
+  delegate_to: localhost
+  run_once: true
+  when: kube_apiserver_encryption_enabled | bool
+
+- name: 设置 encryption key 变量
+  set_fact:
+    kube_apiserver_encryption_key: "{{ encryption_key_content.content | b64decode | trim }}"
+  run_once: true
+  when: kube_apiserver_encryption_enabled | bool
+
+- name: 渲染本地 encryption config
+  template:
+    src: encryption-config.yaml.j2
+    dest: "{{ kube_apiserver_encryption_local_file }}"
+    mode: '0600'
+  delegate_to: localhost
+  run_once: true
+  when: kube_apiserver_encryption_enabled | bool
+
+- name: 分发 encryption config 到 Master
+  copy:
+    src: "{{ kube_apiserver_encryption_local_file }}"
+    dest: "{{ kube_apiserver_encryption_config }}"
+    mode: '0600'
+  when: kube_apiserver_encryption_enabled | bool
