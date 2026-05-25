@@ -7,6 +7,10 @@ on:
         description: Target architecture, e.g. amd64 or arm64
         required: true
         default: amd64
+      target_branch:
+        description: Branch to store binary cache
+        required: true
+        default: binary-cache/amd64
       commit_changes:
         description: Commit downloaded files back to repository
         required: true
@@ -20,15 +24,31 @@ jobs:
     name: Download and commit default binaries
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout source branch
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           lfs: true
 
-      - name: Install Git LFS
+      - name: Configure Git LFS
         run: |
           git lfs install
           git lfs track "files/**/*"
+
+      - name: Prepare binary cache branch
+        run: |
+          set -euo pipefail
+          TARGET_BRANCH="${{ inputs.target_branch }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git ls-remote --exit-code --heads origin "${TARGET_BRANCH}" >/dev/null 2>&1; then
+            git fetch origin "${TARGET_BRANCH}:${TARGET_BRANCH}"
+            git checkout "${TARGET_BRANCH}"
+            git merge --no-edit origin/${{ github.ref_name }} || true
+          else
+            git checkout -b "${TARGET_BRANCH}"
+          fi
 
       - name: Download default binaries
         env:
@@ -42,12 +62,12 @@ jobs:
       - name: Commit binary cache
         if: ${{ inputs.commit_changes == 'true' }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          set -euo pipefail
+          TARGET_BRANCH="${{ inputs.target_branch }}"
           git add .gitattributes "files/${{ inputs.arch }}"
           if git diff --cached --quiet; then
             echo "No binary cache changes to commit."
           else
             git commit -m "cache: update default ${{ inputs.arch }} binaries"
-            git push
+            git push origin "HEAD:${TARGET_BRANCH}"
           fi
