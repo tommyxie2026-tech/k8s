@@ -1,0 +1,53 @@
+name: Cache default binaries
+
+on:
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: Target architecture, e.g. amd64 or arm64
+        required: true
+        default: amd64
+      commit_changes:
+        description: Commit downloaded files back to repository
+        required: true
+        default: 'true'
+
+permissions:
+  contents: write
+
+jobs:
+  cache-default-binaries:
+    name: Download and commit default binaries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Install Git LFS
+        run: |
+          git lfs install
+          git lfs track "files/**/*"
+
+      - name: Download default binaries
+        env:
+          ARCH: ${{ inputs.arch }}
+        run: bash scripts/download-default-binaries.sh
+
+      - name: Show cached files
+        run: |
+          find "files/${{ inputs.arch }}" -maxdepth 1 -type f -printf '%p %s bytes\n' | sort
+
+      - name: Commit binary cache
+        if: ${{ inputs.commit_changes == 'true' }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .gitattributes "files/${{ inputs.arch }}"
+          if git diff --cached --quiet; then
+            echo "No binary cache changes to commit."
+          else
+            git commit -m "cache: update default ${{ inputs.arch }} binaries"
+            git push
+          fi
