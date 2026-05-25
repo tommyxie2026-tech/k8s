@@ -1,6 +1,8 @@
 ---
 # roles/download/tasks/main.yml
-# 统一下载所有二进制包到 files/<arch>/ 目录
+# 统一准备所有二进制包到 files/<arch>/ 目录。
+# 默认：缺失则联网下载。
+# offline_binary_cache_only=true：只校验本地缓存，不联网下载。
 
 - name: 创建下载目录
   file:
@@ -9,6 +11,47 @@
     mode: '0755'
   delegate_to: localhost
   run_once: true
+
+- name: 检查离线缓存文件
+  stat:
+    path: "{{ download_arch_dir }}/{{ item }}"
+  loop: "{{ download_expected_files }}"
+  register: offline_cache_file_stats
+  delegate_to: localhost
+  run_once: true
+  when: offline_binary_cache_only | bool
+
+- name: 计算缺失的离线缓存文件
+  set_fact:
+    missing_offline_cache_files: >-
+      {{ offline_cache_file_stats.results
+         | selectattr('stat.exists', 'equalto', false)
+         | map(attribute='item')
+         | list }}
+  delegate_to: localhost
+  run_once: true
+  when: offline_binary_cache_only | bool
+
+- name: 阻断缺失离线缓存的部署流程
+  assert:
+    that:
+      - missing_offline_cache_files | length == 0
+    fail_msg: "offline_binary_cache_only=true，但缺失必要文件：{{ missing_offline_cache_files }}。请先同步 binary-cache/<arch> 分支，或执行源码构建 / release 下载流程生成 files/<arch>/。"
+    success_msg: "离线二进制缓存完整。"
+  delegate_to: localhost
+  run_once: true
+  when: offline_binary_cache_only | bool
+
+- name: 校验离线缓存 SHA256SUMS
+  command: sha256sum -c SHA256SUMS
+  args:
+    chdir: "{{ download_arch_dir }}"
+  delegate_to: localhost
+  run_once: true
+  changed_when: false
+  when:
+    - offline_binary_cache_only | bool
+    - lookup('ansible.builtin.fileglob', download_arch_dir + '/SHA256SUMS', errors='ignore') | length > 0
 
 # --- 控制机工具 (本地架构) ---
 
@@ -25,6 +68,7 @@
   delay: "{{ download_retry_delay }}"
   delegate_to: localhost
   run_once: true
+  when: not offline_binary_cache_only | bool
 
 - name: 下载 cfssljson
   get_url:
@@ -39,6 +83,7 @@
   delay: "{{ download_retry_delay }}"
   delegate_to: localhost
   run_once: true
+  when: not offline_binary_cache_only | bool
 
 - name: 下载 kubectl
   get_url:
@@ -53,6 +98,7 @@
   delay: "{{ download_retry_delay }}"
   delegate_to: localhost
   run_once: true
+  when: not offline_binary_cache_only | bool
 
 # --- etcd ---
 
@@ -69,6 +115,7 @@
   delay: "{{ download_retry_delay }}"
   delegate_to: localhost
   run_once: true
+  when: not offline_binary_cache_only | bool
 
 # --- Kubernetes ---
 
@@ -85,6 +132,7 @@
   delay: "{{ download_retry_delay }}"
   delegate_to: localhost
   run_once: true
+  when: not offline_binary_cache_only | bool
 
 - name: 下载 Kubernetes Node 二进制包
   get_url:
@@ -99,6 +147,7 @@
   delay: "{{ download_retry_delay }}"
   delegate_to: localhost
   run_once: true
+  when: not offline_binary_cache_only | bool
 
 # --- Containerd ---
 
@@ -115,6 +164,7 @@
   delay: "{{ download_retry_delay }}"
   delegate_to: localhost
   run_once: true
+  when: not offline_binary_cache_only | bool
 
 - name: 下载 runc
   get_url:
@@ -129,6 +179,7 @@
   delay: "{{ download_retry_delay }}"
   delegate_to: localhost
   run_once: true
+  when: not offline_binary_cache_only | bool
 
 - name: 下载 containerd.service
   get_url:
@@ -143,6 +194,7 @@
   delay: "{{ download_retry_delay }}"
   delegate_to: localhost
   run_once: true
+  when: not offline_binary_cache_only | bool
 
 # --- CNI ---
 
@@ -159,6 +211,7 @@
   delay: "{{ download_retry_delay }}"
   delegate_to: localhost
   run_once: true
+  when: not offline_binary_cache_only | bool
 
 # --- Calico ---
 
@@ -175,3 +228,4 @@
   delay: "{{ download_retry_delay }}"
   delegate_to: localhost
   run_once: true
+  when: not offline_binary_cache_only | bool
