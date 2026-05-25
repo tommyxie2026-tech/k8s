@@ -1,0 +1,34 @@
+# Ansible runtime
+*.retry
+
+# Local binary cache
+/files/
+
+# Generated certificates and kubeconfigs
+/ssl_build/
+/.ssl_build/
+/.k8s/
+**/ssl_build/
+**/.ssl_build/
+*.pem
+*.key
+*.csr
+*.kubeconfig
+
+# Local inventories and environment overrides
+inventories/prod/*.yml
+!inventories/prod/*.example.yml
+*.local.yml
+.env
+.env.*
+
+# Logs and temp files
+*.log
+/tmp/
+*.tar.gz
+*.tgz
+
+# macOS / editor
+.DS_Store
+.idea/
+.vscode/
