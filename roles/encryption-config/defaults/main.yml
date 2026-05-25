@@ -1,0 +1,10 @@
+---
+# roles/encryption-config/defaults/main.yml
+
+kube_apiserver_encryption_enabled: true
+kube_apiserver_encryption_config: /etc/kubernetes/encryption-config.yaml
+kube_apiserver_encryption_local_file: "{{ local_cluster_config_dir }}/encryption-config.yaml"
+kube_apiserver_encryption_key_file: "{{ local_cluster_config_dir }}/encryption-provider.key"
+kube_apiserver_encryption_resources:
+  - secrets
+kube_apiserver_encryption_provider_name: aescbc
