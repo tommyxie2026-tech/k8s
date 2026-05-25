@@ -1,0 +1,13 @@
+apiVersion: apiserver.config.k8s.io/v1
+kind: EncryptionConfiguration
+resources:
+  - resources:
+{% for resource in kube_apiserver_encryption_resources %}
+      - {{ resource }}
+{% endfor %}
+    providers:
+      - {{ kube_apiserver_encryption_provider_name }}:
+          keys:
+            - name: key1
+              secret: {{ kube_apiserver_encryption_key }}
+      - identity: {}
