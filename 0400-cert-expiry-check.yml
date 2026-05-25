@@ -1,0 +1,41 @@
+---
+# 0400-cert-expiry-check.yml
+# 检查本地证书有效期，不修改任何文件。
+
+- name: 检查控制机本地证书有效期
+  hosts: localhost
+  gather_facts: no
+  vars:
+    cert_check_dir: "{{ local_cluster_config_dir }}/ssl"
+    cert_check_files:
+      - ca.pem
+      - front-proxy-ca.pem
+      - admin.pem
+      - kube-proxy.pem
+      - kube-controller-manager.pem
+      - kube-scheduler.pem
+      - etcd-client.pem
+      - apiserver.pem
+  tasks:
+    - name: 检查证书文件是否存在
+      stat:
+        path: "{{ cert_check_dir }}/{{ item }}"
+      loop: "{{ cert_check_files }}"
+      register: cert_file_stats
+
+    - name: 输出缺失证书
+      debug:
+        msg: "证书不存在，跳过检查：{{ item.item }}"
+      loop: "{{ cert_file_stats.results }}"
+      when: not item.stat.exists
+
+    - name: 检查证书有效期
+      command: "openssl x509 -in {{ cert_check_dir }}/{{ item.item }} -noout -subject -issuer -dates"
+      loop: "{{ cert_file_stats.results }}"
+      when: item.stat.exists
+      register: cert_expiry_results
+      changed_when: false
+
+    - name: 输出证书有效期
+      debug:
+        var: cert_expiry_results.results
