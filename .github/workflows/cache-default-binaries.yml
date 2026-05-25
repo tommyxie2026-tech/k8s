@@ -50,12 +50,31 @@ jobs:
         run: |
           find "files/${{ inputs.arch }}" -maxdepth 1 -type f -printf '%p %s bytes\n' | sort
 
-      - name: Switch to binary cache branch
+      - name: Prepare binary cache branch
         if: ${{ inputs.commit_changes == 'true' }}
         run: |
           set -euo pipefail
           TARGET_BRANCH="${{ inputs.target_branch }}"
-          git checkout -B "${TARGET_BRANCH}"
+          if git ls-remote --exit-code --heads origin "${TARGET_BRANCH}" >/dev/null 2>&1; then
+            git fetch origin "${TARGET_BRANCH}"
+            git checkout -B "${TARGET_BRANCH}" "origin/${TARGET_BRANCH}"
+          else
+            git checkout --orphan "${TARGET_BRANCH}"
+            git rm -rf . || true
+            git checkout "${{ github.sha }}" -- .gitattributes scripts/download-default-binaries.sh || true
+          fi
+
+      - name: Copy downloaded cache into cache branch
+        if: ${{ inputs.commit_changes == 'true' }}
+        run: |
+          set -euo pipefail
+          ARCH="${{ inputs.arch }}"
+          TMP_CACHE="$(mktemp -d)"
+          cp -a "files/${ARCH}" "${TMP_CACHE}/"
+          mkdir -p files
+          rm -rf "files/${ARCH}"
+          cp -a "${TMP_CACHE}/${ARCH}" "files/${ARCH}"
+          rm -rf "${TMP_CACHE}"
 
       - name: Commit binary cache
         if: ${{ inputs.commit_changes == 'true' }}
@@ -67,5 +86,8 @@ jobs:
             echo "No binary cache changes to commit."
           else
             git commit -m "cache: update default ${{ inputs.arch }} binaries"
-            git push --force-with-lease origin "HEAD:${TARGET_BRANCH}"
+            if ! git push origin "HEAD:${TARGET_BRANCH}"; then
+              echo "::error::Failed to push ${TARGET_BRANCH}. Check repository Actions write permission and branch protection rules, or run again with a new target_branch such as binary-cache/${{ inputs.arch }}-${{ github.run_number }}."
+              exit 1
+            fi
           fi
