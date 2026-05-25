@@ -15,6 +15,7 @@ PLAYBOOKS=(
   0012-manager-set-kube.yml
   0020-create-compute-set.yml
   0030-install-cni.yml
+  0031-single-node-post.yml
   0040-etcd-snapshot.yml
   0400-cert-expiry-check.yml
   0401-renew-component-certs.yml
