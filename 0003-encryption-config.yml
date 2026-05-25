@@ -1,0 +1,10 @@
+---
+# 0003-encryption-config.yml
+# 生成并分发 kube-apiserver Secret 静态加密配置。
+
+- name: 生成并分发 kube-apiserver encryption config
+  hosts: kube_master
+  gather_facts: no
+  become: yes
+  roles:
+    - encryption-config
