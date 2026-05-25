@@ -4,6 +4,10 @@
 
 download_dir: "{{ playbook_dir }}/files"
 download_arch_dir: "{{ download_dir }}/{{ target_arch }}"
+
+# If true, download role only reports existing cache files and never fetches missing files.
+offline_binary_cache_only: false
+
 download_timeout: 60
 download_retries: 3
 download_retry_delay: 5
