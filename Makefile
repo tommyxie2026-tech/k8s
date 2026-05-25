@@ -1,4 +1,4 @@
-.PHONY: syntax-check syntax-check-single preflight-container deploy-container deploy-single cleanup-container smoke-test
+.PHONY: syntax-check syntax-check-single preflight-container deploy-container deploy-container-offline deploy-single deploy-single-offline cleanup-container smoke-test
 
 INVENTORY ?= inventories/hosts-container.yml
 KUBECONFIG_PATH ?= $(HOME)/.kube/config
@@ -26,9 +26,34 @@ deploy-container:
 	ansible-playbook -i inventories/hosts-container.yml 0020-create-compute-set.yml
 	ansible-playbook -i inventories/hosts-container.yml 0030-install-cni.yml
 
+deploy-container-offline:
+	ansible-playbook -i inventories/hosts-container.yml 0000-container-infra.yml
+	ansible-playbook -i inventories/hosts-container.yml 0000-preflight.yml
+	ansible-playbook -i inventories/hosts-container.yml 0001-download-binaries.yml -e offline_binary_cache_only=true
+	ansible-playbook -i inventories/hosts-container.yml 0000-common-service.yml
+	ansible-playbook -i inventories/hosts-container.yml 0002-common-kubeconfig.yml
+	ansible-playbook -i inventories/hosts-container.yml 0003-encryption-config.yml
+	ansible-playbook -i inventories/hosts-container.yml 0005-install-lb.yml
+	ansible-playbook -i inventories/hosts-container.yml 0010-create-manager-set.yml
+	ansible-playbook -i inventories/hosts-container.yml 0012-manager-set-kube.yml
+	ansible-playbook -i inventories/hosts-container.yml 0020-create-compute-set.yml
+	ansible-playbook -i inventories/hosts-container.yml 0030-install-cni.yml
+
 deploy-single:
 	ansible-playbook -i inventories/hosts-single.yml 0000-preflight.yml
 	ansible-playbook -i inventories/hosts-single.yml 0001-download-binaries.yml
+	ansible-playbook -i inventories/hosts-single.yml 0000-common-service.yml
+	ansible-playbook -i inventories/hosts-single.yml 0002-common-kubeconfig.yml
+	ansible-playbook -i inventories/hosts-single.yml 0003-encryption-config.yml
+	ansible-playbook -i inventories/hosts-single.yml 0005-install-lb.yml
+	ansible-playbook -i inventories/hosts-single.yml 0010-create-manager-set.yml
+	ansible-playbook -i inventories/hosts-single.yml 0012-manager-set-kube.yml
+	ansible-playbook -i inventories/hosts-single.yml 0030-install-cni.yml
+	ansible-playbook -i inventories/hosts-single.yml 0031-single-node-post.yml
+
+deploy-single-offline:
+	ansible-playbook -i inventories/hosts-single.yml 0000-preflight.yml
+	ansible-playbook -i inventories/hosts-single.yml 0001-download-binaries.yml -e offline_binary_cache_only=true
 	ansible-playbook -i inventories/hosts-single.yml 0000-common-service.yml
 	ansible-playbook -i inventories/hosts-single.yml 0002-common-kubeconfig.yml
 	ansible-playbook -i inventories/hosts-single.yml 0003-encryption-config.yml
