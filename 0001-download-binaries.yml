@@ -1,9 +1,27 @@
 ---
 # 0001-download-binaries.yml
-# 统一下载所有二进制包到 files/<arch>/ 目录
+# 统一准备所有二进制包到 files/<arch>/ 目录。
+# 如果存在 inventories/group_vars/download-checksums-<arch>.yml，会自动加载 checksum 强校验变量。
 
-- name: 下载所有组件二进制包
+- name: 下载或校验所有组件二进制包
   hosts: localhost
   gather_facts: yes
+  pre_tasks:
+    - name: 检查架构级 checksum 变量文件是否存在
+      stat:
+        path: "{{ playbook_dir }}/inventories/group_vars/download-checksums-{{ target_arch }}.yml"
+      register: download_checksum_vars_file
+
+    - name: 自动加载架构级 checksum 变量
+      include_vars:
+        file: "{{ playbook_dir }}/inventories/group_vars/download-checksums-{{ target_arch }}.yml"
+      when: download_checksum_vars_file.stat.exists
+
+    - name: 输出 checksum 变量加载状态
+      debug:
+        msg: >-
+          {{ '已加载 download-checksums-' ~ target_arch ~ '.yml，将启用 get_url checksum 强校验。'
+             if download_checksum_vars_file.stat.exists
+             else '未发现 download-checksums-' ~ target_arch ~ '.yml，将按 download_checksums 默认值执行。' }}
   roles:
     - download
