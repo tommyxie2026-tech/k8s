@@ -32,12 +32,16 @@ files/
     cni-plugins-linux-amd64-v<version>.tgz
     calico.yaml
     SHA256SUMS
+
+inventories/group_vars/
+  download-checksums-amd64.yml
 ```
 
 后续可增加：
 
 ```text
 files/arm64/
+inventories/group_vars/download-checksums-arm64.yml
 ```
 
 ## 触发下载并提交到缓存分支
@@ -80,6 +84,14 @@ repo/sources.yml
 
 从源码 tag 编译二进制，并打包为当前部署脚本兼容的 release-like 归档包。
 
+源码构建完成后会自动生成：
+
+```text
+inventories/group_vars/download-checksums-<arch>.yml
+```
+
+该文件会被 `0001-download-binaries.yml` 自动加载，用于 `get_url checksum` 强校验。
+
 ## 从缓存分支同步到部署工作区
 
 在部署机上先安装 Git LFS，然后执行：
@@ -95,6 +107,54 @@ ARCH=amd64 CACHE_BRANCH=binary-cache/amd64 bash scripts/sync-binary-cache-branch
 2. 从分支中导出 `files/<arch>/`。
 3. 同步到当前工作区的 `files/<arch>/`。
 4. 如果存在 `SHA256SUMS`，自动执行 `sha256sum -c SHA256SUMS`。
+
+如果缓存分支包含 `inventories/group_vars/download-checksums-<arch>.yml`，也建议同步该文件到当前工作区，以便在线下载或离线校验时启用强校验。
+
+## 生成 Ansible checksum 变量
+
+如果本地已有：
+
+```text
+files/<arch>/SHA256SUMS
+```
+
+可以生成 Ansible 变量文件：
+
+```bash
+python scripts/generate-download-checksums.py --arch amd64
+```
+
+输出：
+
+```text
+inventories/group_vars/download-checksums-amd64.yml
+```
+
+格式示例：
+
+```yaml
+---
+download_checksums:
+  cfssl: sha256:<digest>
+  cfssljson: sha256:<digest>
+  kubectl: sha256:<digest>
+  etcd: sha256:<digest>
+  kubernetes_server: sha256:<digest>
+  kubernetes_node: sha256:<digest>
+  containerd: sha256:<digest>
+  runc: sha256:<digest>
+  containerd_service: sha256:<digest>
+  cni_plugins: sha256:<digest>
+  calico_manifest: sha256:<digest>
+```
+
+`0001-download-binaries.yml` 会自动检查并加载：
+
+```text
+inventories/group_vars/download-checksums-{{ target_arch }}.yml
+```
+
+存在时，联网下载模式也会启用 `checksum:` 强校验。
 
 ## 离线部署模式
 
@@ -117,6 +177,7 @@ make deploy-container-offline
 - 不执行任何 `get_url` 下载。
 - 只检查 `download_expected_files` 是否全部存在。
 - 如果存在 `SHA256SUMS`，执行 `sha256sum -c SHA256SUMS`。
+- 如果存在 `download-checksums-<arch>.yml`，也会被自动加载。
 - 缺失任何必要文件都会立即失败。
 
 ## 本地下载
@@ -125,6 +186,7 @@ make deploy-container-offline
 
 ```bash
 ARCH=amd64 bash scripts/download-default-binaries.sh
+python scripts/generate-download-checksums.py --arch amd64
 ```
 
 可覆盖默认版本：
