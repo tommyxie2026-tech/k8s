@@ -1,0 +1,56 @@
+# inventories/hosts-single.yml
+# 单节点物理机部署清单：同一台机器同时承担 etcd、control plane 与 worker 角色。
+# 适用于 PoC、边缘、小规模离线单机，不提供高可用能力。
+
+all:
+  children:
+    etcd:
+      hosts:
+        single-01:
+          ansible_host: 192.168.1.10
+          etcd_name: single-01
+
+    kube_master:
+      hosts:
+        single-01:
+          ansible_host: 192.168.1.10
+
+    compute_servers:
+      hosts: {}
+
+    kube_node:
+      children:
+        kube_master:
+
+  vars:
+    node_type: "machine"
+    cluster_mode: "single"
+
+    # 单节点模式保留 Nginx 本地代理，跳过 Keepalived VIP 漂移。
+    enable_keepalived: false
+    LB_APISERVER_VIP: 192.168.1.10
+    LB_APISERVER_PORT: 8443
+    LB_INTERFACE: eth0
+
+    local_cluster_config_dir: "/root/.ssl_build"
+
+    target_arch: "amd64"
+    download_dir: "{{ playbook_dir }}/files"
+    download_arch_dir: "{{ download_dir }}/{{ target_arch }}"
+
+    SERVICE_CIDR: 10.96.0.0/16
+    CLUSTER_CIDR: 10.244.0.0/16
+    CLUSTER_DNS_SVC_IP: 10.96.0.10
+    CLUSTER_DOMAIN: cluster.local
+
+    MASTER_CERT_HOSTS:
+      - 192.168.1.10
+      - 127.0.0.1
+      - 10.96.0.1
+      - kubernetes
+      - kubernetes.default
+      - kubernetes.default.svc
+      - kubernetes.default.svc.cluster.local
+
+    CONTAINERD_CGROUP_DRIVER: systemd
+    SANDBOX_IMAGE: "registry.k8s.io/pause:3.10.2"
