@@ -8,22 +8,42 @@ KUBERNETES_VERSION="${KUBERNETES_VERSION:-1.36.1}"
 ETCD_VERSION="${ETCD_VERSION:-3.6.11}"
 CONTAINERD_VERSION="${CONTAINERD_VERSION:-2.3.0}"
 CNI_PLUGINS_VERSION="${CNI_PLUGINS_VERSION:-1.9.1}"
+STRICT_PACKAGE="${STRICT_PACKAGE:-false}"
 
-require_file() {
-  local file="$1"
-  if [[ ! -f "${file}" ]]; then
-    echo "missing required file: ${file}" >&2
-    return 1
-  fi
+missing_files=()
+
+have_files() {
+  local file
+  for file in "$@"; do
+    if [[ ! -f "${FILES_DIR}/${file}" ]]; then
+      return 1
+    fi
+  done
+  return 0
+}
+
+record_missing() {
+  local file
+  for file in "$@"; do
+    if [[ ! -f "${FILES_DIR}/${file}" ]]; then
+      missing_files+=("${FILES_DIR}/${file}")
+    fi
+  done
 }
 
 package_kubernetes_server() {
+  local required=(kube-apiserver kube-controller-manager kube-scheduler kubectl)
+  if ! have_files "${required[@]}"; then
+    record_missing "${required[@]}"
+    echo "==> skip kubernetes server archive: required binaries not complete"
+    return 0
+  fi
+
   local root="${PKG_WORK_DIR}/kubernetes-server"
   rm -rf "${root}"
   mkdir -p "${root}/kubernetes/server/bin"
 
-  for bin in kube-apiserver kube-controller-manager kube-scheduler kubectl; do
-    require_file "${FILES_DIR}/${bin}"
+  for bin in "${required[@]}"; do
     cp "${FILES_DIR}/${bin}" "${root}/kubernetes/server/bin/${bin}"
     chmod +x "${root}/kubernetes/server/bin/${bin}"
   done
@@ -32,12 +52,18 @@ package_kubernetes_server() {
 }
 
 package_kubernetes_node() {
+  local required=(kubelet kube-proxy kubectl)
+  if ! have_files "${required[@]}"; then
+    record_missing "${required[@]}"
+    echo "==> skip kubernetes node archive: required binaries not complete"
+    return 0
+  fi
+
   local root="${PKG_WORK_DIR}/kubernetes-node"
   rm -rf "${root}"
   mkdir -p "${root}/kubernetes/node/bin"
 
-  for bin in kubelet kube-proxy kubectl; do
-    require_file "${FILES_DIR}/${bin}"
+  for bin in "${required[@]}"; do
     cp "${FILES_DIR}/${bin}" "${root}/kubernetes/node/bin/${bin}"
     chmod +x "${root}/kubernetes/node/bin/${bin}"
   done
@@ -46,13 +72,19 @@ package_kubernetes_node() {
 }
 
 package_etcd() {
+  local required=(etcd etcdctl)
+  if ! have_files "${required[@]}"; then
+    record_missing "${required[@]}"
+    echo "==> skip etcd archive: required binaries not complete"
+    return 0
+  fi
+
   local root="${PKG_WORK_DIR}/etcd"
   local dir="etcd-v${ETCD_VERSION}-linux-${ARCH}"
   rm -rf "${root}"
   mkdir -p "${root}/${dir}"
 
-  for bin in etcd etcdctl; do
-    require_file "${FILES_DIR}/${bin}"
+  for bin in "${required[@]}"; do
     cp "${FILES_DIR}/${bin}" "${root}/${dir}/${bin}"
     chmod +x "${root}/${dir}/${bin}"
   done
@@ -61,12 +93,18 @@ package_etcd() {
 }
 
 package_containerd() {
+  local required=(containerd containerd-shim-runc-v2 ctr)
+  if ! have_files "${required[@]}"; then
+    record_missing "${required[@]}"
+    echo "==> skip containerd archive: required binaries not complete"
+    return 0
+  fi
+
   local root="${PKG_WORK_DIR}/containerd"
   rm -rf "${root}"
   mkdir -p "${root}/bin"
 
-  for bin in containerd containerd-shim-runc-v2 ctr; do
-    require_file "${FILES_DIR}/${bin}"
+  for bin in "${required[@]}"; do
     cp "${FILES_DIR}/${bin}" "${root}/bin/${bin}"
     chmod +x "${root}/bin/${bin}"
   done
@@ -80,7 +118,7 @@ package_cni_plugins() {
   fi
 
   if [[ ! -d "${FILES_DIR}/cni-plugins" ]]; then
-    echo "skip cni packaging: ${FILES_DIR}/cni-plugins not found and archive already absent" >&2
+    echo "==> skip cni archive: ${FILES_DIR}/cni-plugins not found"
     return 0
   fi
 
@@ -94,6 +132,12 @@ package_kubernetes_node
 package_etcd
 package_containerd
 package_cni_plugins
+
+if [[ "${STRICT_PACKAGE}" == "true" && "${#missing_files[@]}" -gt 0 ]]; then
+  printf 'strict packaging failed; missing files:\n' >&2
+  printf -- '- %s\n' "${missing_files[@]}" >&2
+  exit 1
+fi
 
 find "${FILES_DIR}" -type f -maxdepth 2 -print0 | sort -z | xargs -0 sha256sum > "${FILES_DIR}/SHA256SUMS"
 
