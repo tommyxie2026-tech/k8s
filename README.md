@@ -62,6 +62,7 @@ ansible-playbook $INV 0000-preflight.yml
 ansible-playbook $INV 0001-download-binaries.yml
 ansible-playbook $INV 0000-common-service.yml
 ansible-playbook $INV 0002-common-kubeconfig.yml
+ansible-playbook $INV 0003-encryption-config.yml
 ansible-playbook $INV 0005-install-lb.yml
 ansible-playbook $INV 0010-create-manager-set.yml
 ansible-playbook $INV 0012-manager-set-kube.yml
@@ -79,6 +80,7 @@ ansible-playbook $INV 0000-preflight.yml
 ansible-playbook $INV 0001-download-binaries.yml
 ansible-playbook $INV 0000-common-service.yml
 ansible-playbook $INV 0002-common-kubeconfig.yml
+ansible-playbook $INV 0003-encryption-config.yml
 ansible-playbook $INV 0005-install-lb.yml
 ansible-playbook $INV 0010-create-manager-set.yml
 ansible-playbook $INV 0012-manager-set-kube.yml
@@ -97,7 +99,10 @@ KUBECONFIG_PATH=/root/.kube/config make smoke-test
 | Playbook | 作用 | 风险级别 |
 |----------|------|----------|
 | `0000-preflight.yml` | 部署前检查控制机、节点、端口、网络变量 | 低 |
+| `0003-encryption-config.yml` | 生成并分发 kube-apiserver Secret 静态加密配置 | 中 |
 | `0040-etcd-snapshot.yml` | 生成 etcd snapshot 并校验状态 | 中 |
+| `0400-cert-expiry-check.yml` | 检查本地组件证书有效期，不修改文件 | 低 |
+| `0401-renew-component-certs.yml` | 归档并重新生成本地组件证书与 kubeconfig，需显式确认 | 高 |
 | `0090-stop-services.yml` | 停止 Kubernetes / etcd / LB 服务，不删除数据 | 中 |
 | `0091-reset-node-runtime.yml` | 清理 kubelet / CNI / containerd 运行态，需显式确认 | 高 |
 | `0099-container-cleanup.yml` | 删除容器实验节点和 Docker 网络 | 高，仅容器模式 |
@@ -106,6 +111,12 @@ KUBECONFIG_PATH=/root/.kube/config make smoke-test
 
 ```bash
 ansible-playbook -i inventories/hosts.yml 0091-reset-node-runtime.yml -e confirm_reset_node_runtime=true
+```
+
+`0401-renew-component-certs.yml` 默认拒绝执行，必须显式传入：
+
+```bash
+ansible-playbook -i inventories/hosts.yml 0401-renew-component-certs.yml -e confirm_renew_component_certs=true
 ```
 
 ## 目录结构
@@ -124,6 +135,7 @@ ansible-playbook -i inventories/hosts.yml 0091-reset-node-runtime.yml -e confirm
 │   ├── download/
 │   ├── container-infra/
 │   ├── common/
+│   ├── encryption-config/
 │   ├── kubeconfig/
 │   ├── lb/
 │   ├── etcd/
@@ -146,12 +158,15 @@ ansible-playbook -i inventories/hosts.yml 0091-reset-node-runtime.yml -e confirm
 ├── 0001-download-binaries.yml
 ├── 0000-common-service.yml
 ├── 0002-common-kubeconfig.yml
+├── 0003-encryption-config.yml
 ├── 0005-install-lb.yml
 ├── 0010-create-manager-set.yml
 ├── 0012-manager-set-kube.yml
 ├── 0020-create-compute-set.yml
 ├── 0030-install-cni.yml
 ├── 0040-etcd-snapshot.yml
+├── 0400-cert-expiry-check.yml
+├── 0401-renew-component-certs.yml
 ├── 0090-stop-services.yml
 ├── 0091-reset-node-runtime.yml
 └── 0099-container-cleanup.yml
@@ -177,8 +192,28 @@ ansible-playbook -i inventories/hosts.yml 0091-reset-node-runtime.yml -e confirm
 - 容器模式不内置 SSH，也不允许 root 免密 SSH。
 - 生成的证书、私钥、kubeconfig、二进制缓存会被 `.gitignore` 忽略。
 - CA 私钥离线化仍作为 P0 待办记录在 `docs/SECURITY-HARDENING.md`，当前不在本轮修改范围内。
-- Secret 静态加密能力由 kube-apiserver encryption config 支持。
+- Secret 静态加密能力由 `0003-encryption-config.yml` 生成配置，并由 apiserver `--encryption-provider-config` 启用。
+- 证书续期入口默认拒绝执行，必须显式确认。
 - 破坏性 reset 操作默认拒绝执行，必须显式确认。
+
+## 下载与供应链校验
+
+下载任务支持：
+
+- `download_timeout`
+- `download_retries`
+- `download_retry_delay`
+- `download_checksums`
+
+可在 inventory 或 extra-vars 中设置 checksum，例如：
+
+```yaml
+download_checksums:
+  kubectl: "sha256:<digest>"
+  etcd: "sha256:<digest>"
+```
+
+未设置 checksum 时仍可下载，但不会执行强校验。
 
 ## 离线部署
 
