@@ -1,0 +1,42 @@
+---
+# 0040-etcd-snapshot.yml
+# etcd 快照备份：在每个 etcd 节点本地生成快照文件。
+
+- name: 生成 etcd 快照
+  hosts: etcd
+  gather_facts: yes
+  vars:
+    etcd_snapshot_dir: "/var/backups/etcd"
+    etcd_snapshot_name: "etcd-snapshot-{{ ansible_date_time.iso8601_basic_short }}.db"
+  tasks:
+    - name: 创建 etcd 备份目录
+      file:
+        path: "{{ etcd_snapshot_dir }}"
+        state: directory
+        mode: '0700'
+
+    - name: 执行 etcd snapshot save
+      command: >
+        /usr/local/bin/etcdctl
+        --cacert={{ etcd_ssl_dir }}/ca.pem
+        --cert={{ etcd_ssl_dir }}/etcd.pem
+        --key={{ etcd_ssl_dir }}/etcd-key.pem
+        --endpoints=https://127.0.0.1:{{ etcd_client_port }}
+        snapshot save {{ etcd_snapshot_dir }}/{{ etcd_snapshot_name }}
+      environment:
+        ETCDCTL_API: 3
+      register: etcd_snapshot_result
+      changed_when: true
+
+    - name: 校验 etcd snapshot 状态
+      command: >
+        /usr/local/bin/etcdctl
+        snapshot status {{ etcd_snapshot_dir }}/{{ etcd_snapshot_name }} --write-out=table
+      environment:
+        ETCDCTL_API: 3
+      register: etcd_snapshot_status
+      changed_when: false
+
+    - name: 输出 snapshot 状态
+      debug:
+        var: etcd_snapshot_status.stdout_lines
