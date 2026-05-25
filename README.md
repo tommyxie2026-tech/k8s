@@ -1,22 +1,24 @@
 # 高可用 Kubernetes 二进制部署
 
-基于 Ansible 的 Kubernetes 高可用集群二进制部署方案，支持物理机/虚拟机主路径，以及用于开发、CI、演示的 Docker 容器模式。
+基于 Ansible 的 Kubernetes 高可用集群二进制部署方案，支持 HA 物理机/虚拟机、单节点物理机，以及用于开发、CI、演示的 Docker 容器模式。
 
-> 当前项目正在按 `docs/ROADMAP.md` 逐步生产化。容器模式仅用于开发、CI 和演示，不作为生产运行形态。
+> 当前项目正在按 `docs/ROADMAP.md` 逐步生产化。容器模式仅用于开发、CI 和演示，不作为生产运行形态；单节点物理机模式不提供高可用能力。
 
 ## 部署模式
 
 | 模式 | `node_type` | 定位 | Inventory |
 |------|-------------|------|-----------|
-| 物理机 / 虚拟机 | `machine` | 主部署路径，执行完整宿主级系统配置 | `inventories/hosts.yml` |
+| 物理机 / 虚拟机 HA | `machine` | 主部署路径，执行完整宿主级系统配置，支持多 master / 多 etcd | `inventories/hosts.yml` |
+| 单节点物理机 | `machine` + `cluster_mode=single` | PoC、边缘、小型离线单机，不提供 HA | `inventories/hosts-single.yml` |
 | 容器 | `container` | 开发 / CI / 演示环境 | `inventories/hosts-container.yml` |
 
-容器模式下，每个节点是一个运行 systemd 的 Docker 容器，Ansible 通过 Docker API 管理，无需 SSH。
+容器模式下，每个节点是一个运行 systemd 的 Docker 容器，Ansible 通过 Docker API 管理，无需 SSH。单节点物理机模式下，同一台机器同时承担 etcd、control plane 与 worker 角色。
 
 ## 架构概览
 
 - HA 入口：Nginx 4 层 stream 代理 + Keepalived VIP 漂移
-- etcd：独立 3 节点集群，mTLS 双向认证
+- 单节点入口：Nginx 本地代理，跳过 Keepalived
+- etcd：HA 模式独立多节点，单节点模式本机单 member
 - PKI：cfssl 签发，含 front-proxy CA 支持 API 聚合层
 - 网络：Calico + kube-proxy DaemonSet
 - 运行时：containerd + runc
@@ -43,8 +45,10 @@
 
 ```bash
 make syntax-check
+make syntax-check-single
 make preflight-container
 make deploy-container
+make deploy-single
 make smoke-test
 make cleanup-container
 ```
@@ -53,7 +57,7 @@ make cleanup-container
 
 ## 推荐部署流程
 
-### 物理机 / 虚拟机部署
+### 物理机 / 虚拟机 HA 部署
 
 ```bash
 INV="-i inventories/hosts.yml"
@@ -68,6 +72,29 @@ ansible-playbook $INV 0010-create-manager-set.yml
 ansible-playbook $INV 0012-manager-set-kube.yml
 ansible-playbook $INV 0020-create-compute-set.yml
 ansible-playbook $INV 0030-install-cni.yml
+```
+
+### 单节点物理机部署
+
+```bash
+make deploy-single
+```
+
+或手动执行：
+
+```bash
+INV="-i inventories/hosts-single.yml"
+
+ansible-playbook $INV 0000-preflight.yml
+ansible-playbook $INV 0001-download-binaries.yml
+ansible-playbook $INV 0000-common-service.yml
+ansible-playbook $INV 0002-common-kubeconfig.yml
+ansible-playbook $INV 0003-encryption-config.yml
+ansible-playbook $INV 0005-install-lb.yml
+ansible-playbook $INV 0010-create-manager-set.yml
+ansible-playbook $INV 0012-manager-set-kube.yml
+ansible-playbook $INV 0030-install-cni.yml
+ansible-playbook $INV 0031-single-node-post.yml
 ```
 
 ### 容器模式部署
@@ -100,6 +127,7 @@ KUBECONFIG_PATH=/root/.kube/config make smoke-test
 |----------|------|----------|
 | `0000-preflight.yml` | 部署前检查控制机、节点、端口、网络变量 | 低 |
 | `0003-encryption-config.yml` | 生成并分发 kube-apiserver Secret 静态加密配置 | 中 |
+| `0031-single-node-post.yml` | 单节点部署后处理，移除控制面 taint 并等待 Ready | 中，仅单节点 |
 | `0040-etcd-snapshot.yml` | 生成 etcd snapshot 并校验状态 | 中 |
 | `0400-cert-expiry-check.yml` | 检查本地组件证书有效期，不修改文件 | 低 |
 | `0401-renew-component-certs.yml` | 归档并重新生成本地组件证书与 kubeconfig，需显式确认 | 高 |
@@ -129,6 +157,7 @@ ansible-playbook -i inventories/hosts.yml 0401-renew-component-certs.yml -e conf
 ├── Dockerfile
 ├── inventories/
 │   ├── hosts.yml
+│   ├── hosts-single.yml
 │   ├── hosts-container.yml
 │   └── group_vars/all.yml
 ├── roles/
@@ -145,12 +174,16 @@ ansible-playbook -i inventories/hosts.yml 0401-renew-component-certs.yml -e conf
 │   └── cni/
 ├── scripts/
 │   ├── syntax-check.sh
-│   └── smoke-test.sh
+│   ├── smoke-test.sh
+│   ├── download-default-binaries.sh
+│   └── sync-binary-cache-branch.sh
 ├── docs/
 │   ├── ROADMAP.md
 │   ├── OPERATIONS.md
 │   ├── SECURITY-HARDENING.md
 │   ├── VERSION-MATRIX.md
+│   ├── SINGLE-NODE.md
+│   ├── BINARY-CACHE.md
 │   ├── MACHINE-RESET.md
 │   └── ETCD-BACKUP-RESTORE.md
 ├── 0000-container-infra.yml
@@ -164,6 +197,7 @@ ansible-playbook -i inventories/hosts.yml 0401-renew-component-certs.yml -e conf
 ├── 0012-manager-set-kube.yml
 ├── 0020-create-compute-set.yml
 ├── 0030-install-cni.yml
+├── 0031-single-node-post.yml
 ├── 0040-etcd-snapshot.yml
 ├── 0400-cert-expiry-check.yml
 ├── 0401-renew-component-certs.yml
@@ -190,6 +224,7 @@ ansible-playbook -i inventories/hosts.yml 0401-renew-component-certs.yml -e conf
 ## 安全边界
 
 - 容器模式不内置 SSH，也不允许 root 免密 SSH。
+- 单节点物理机模式不提供 HA，也不提供 etcd quorum 容错。
 - 生成的证书、私钥、kubeconfig、二进制缓存会被 `.gitignore` 忽略。
 - CA 私钥离线化仍作为 P0 待办记录在 `docs/SECURITY-HARDENING.md`，当前不在本轮修改范围内。
 - Secret 静态加密能力由 `0003-encryption-config.yml` 生成配置，并由 apiserver `--encryption-provider-config` 启用。
@@ -213,13 +248,14 @@ download_checksums:
   etcd: "sha256:<digest>"
 ```
 
-未设置 checksum 时仍可下载，但不会执行强校验。
+未设置 checksum 时仍可下载，但不会执行强校验。默认二进制缓存可通过 `docs/BINARY-CACHE.md` 中的独立缓存分支流程同步。
 
 ## 离线部署
 
 1. 在联网环境执行 `0001-download-binaries.yml`，将二进制下载到 `files/<arch>/`。
-2. 将整个项目目录拷贝到离线环境。
-3. 离线环境按推荐部署流程执行。
+2. 或从 `binary-cache/<arch>` 分支同步默认二进制缓存。
+3. 将整个项目目录拷贝到离线环境。
+4. 离线环境按推荐部署流程执行。
 
 容器模式还需提前准备 kube-proxy、CoreDNS、Calico、pause 等镜像。
 
@@ -228,6 +264,7 @@ download_checksums:
 - etcd 健康检查失败：确认 etcd 证书路径、2379/2380 端口和节点网络。
 - APIServer 未就绪：检查 Nginx、VIP、etcd endpoint、审计策略和 encryption config。
 - 节点 NotReady：检查 Calico、CNI 二进制、kube-proxy DaemonSet 和 kubelet 日志。
+- 单节点无法调度业务 Pod：确认 `0031-single-node-post.yml` 已执行，并检查 control-plane / master taint。
 - 证书签发失败：检查 `local_cluster_config_dir` 权限和 cfssl/kubectl 是否可执行。
 - 容器模式连接失败：确认 Docker daemon 运行中且已安装 `community.docker`。
 
@@ -237,5 +274,7 @@ download_checksums:
 - `docs/OPERATIONS.md`：部署与运维执行规范
 - `docs/SECURITY-HARDENING.md`：安全加固待办
 - `docs/VERSION-MATRIX.md`：组件版本矩阵
+- `docs/SINGLE-NODE.md`：单节点物理机模式
+- `docs/BINARY-CACHE.md`：默认二进制缓存
 - `docs/MACHINE-RESET.md`：机器模式 reset 设计
 - `docs/ETCD-BACKUP-RESTORE.md`：etcd 备份与恢复
