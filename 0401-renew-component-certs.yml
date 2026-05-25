@@ -1,0 +1,84 @@
+---
+# 0401-renew-component-certs.yml
+# 续期控制机本地组件证书与 kubeconfig。
+# 默认拒绝执行；必须显式传入 -e confirm_renew_component_certs=true。
+
+- name: 续期控制机本地组件证书与 kubeconfig
+  hosts: localhost
+  gather_facts: yes
+  vars:
+    confirm_renew_component_certs: false
+    cert_renew_backup_dir: "{{ local_cluster_config_dir }}/backup/certs-{{ ansible_date_time.iso8601_basic_short }}"
+    cert_renew_files:
+      - admin.pem
+      - admin-key.pem
+      - kube-proxy.pem
+      - kube-proxy-key.pem
+      - kube-controller-manager.pem
+      - kube-controller-manager-key.pem
+      - kube-scheduler.pem
+      - kube-scheduler-key.pem
+      - etcd-client.pem
+      - etcd-client-key.pem
+      - front-proxy-client.pem
+      - front-proxy-client-key.pem
+      - apiserver.pem
+      - apiserver-key.pem
+  tasks:
+    - name: 阻断未显式确认的证书续期
+      assert:
+        that:
+          - confirm_renew_component_certs | bool
+        fail_msg: >-
+          拒绝执行：该操作会归档并重新生成本地组件证书与 kubeconfig。
+          必须通过 -e confirm_renew_component_certs=true 显式确认后才会继续。
+        success_msg: "已收到显式确认：开始续期本地组件证书。"
+
+    - name: 创建证书备份目录
+      file:
+        path: "{{ cert_renew_backup_dir }}"
+        state: directory
+        mode: '0700'
+
+    - name: 检查待归档证书文件
+      stat:
+        path: "{{ local_cluster_config_dir }}/ssl/{{ item }}"
+      loop: "{{ cert_renew_files }}"
+      register: cert_renew_file_stats
+
+    - name: 归档旧证书文件
+      copy:
+        src: "{{ local_cluster_config_dir }}/ssl/{{ item.item }}"
+        dest: "{{ cert_renew_backup_dir }}/{{ item.item }}"
+        mode: '0600'
+        remote_src: true
+      loop: "{{ cert_renew_file_stats.results }}"
+      when: item.stat.exists
+
+    - name: 删除旧证书文件以触发重新生成
+      file:
+        path: "{{ local_cluster_config_dir }}/ssl/{{ item.item }}"
+        state: absent
+      loop: "{{ cert_renew_file_stats.results }}"
+      when: item.stat.exists
+
+    - name: 归档旧 kubeconfig 目录
+      copy:
+        src: "{{ local_cluster_config_dir }}/kubeconfig/"
+        dest: "{{ cert_renew_backup_dir }}/kubeconfig/"
+        mode: preserve
+        remote_src: true
+      failed_when: false
+
+    - name: 删除旧 kubeconfig 以触发重新生成
+      file:
+        path: "{{ local_cluster_config_dir }}/kubeconfig"
+        state: absent
+
+    - name: 重新运行 kubeconfig role 生成组件证书与 kubeconfig
+      include_role:
+        name: kubeconfig
+
+    - name: 输出续期完成提示
+      debug:
+        msg: "本地组件证书与 kubeconfig 已重新生成。请重新执行控制面分发/重启流程，并保留备份目录：{{ cert_renew_backup_dir }}"
