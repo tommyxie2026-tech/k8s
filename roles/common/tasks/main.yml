@@ -48,7 +48,7 @@
   when: node_type == 'machine'
 
 - name: 5. 渲染 sysctl 参数实现网桥过滤与转发
-  sysctl:
+  ansible.posix.sysctl:
     name: "{{ item.key }}"
     value: "{{ item.value }}"
     state: present
