@@ -1,0 +1,2 @@
+# Default amd64 binary cache directory.
+# Run the "Cache default binaries" GitHub Actions workflow to populate this directory.
