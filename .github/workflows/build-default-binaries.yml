@@ -7,10 +7,14 @@ on:
         description: Target architecture, e.g. amd64 or arm64
         required: true
         default: amd64
-      components:
-        description: Component list, comma-separated, or all
+      stage:
+        description: Build stage: stage1-light, stage2-core, stage3-runtime, stage4-kubernetes, or custom
         required: true
-        default: all
+        default: stage1-light
+      components:
+        description: Component list for custom stage, comma-separated, or all
+        required: false
+        default: ''
       target_branch:
         description: Branch to store built binary cache
         required: true
@@ -19,6 +23,10 @@ on:
         description: Commit built files back to repository
         required: true
         default: 'true'
+      strict_package:
+        description: Require all deploy archives to be complete
+        required: true
+        default: 'false'
 
 permissions:
   contents: write
@@ -61,6 +69,65 @@ jobs:
       - name: Check source and deploy versions
         run: python scripts/check-version-consistency.py
 
+      - name: Resolve build components
+        id: resolve-components
+        run: |
+          set -euo pipefail
+          STAGE="${{ inputs.stage }}"
+          CUSTOM_COMPONENTS="${{ inputs.components }}"
+          case "${STAGE}" in
+            stage1-light)
+              COMPONENTS="cfssl,runc"
+              ;;
+            stage2-core)
+              COMPONENTS="cni-plugins,etcd"
+              ;;
+            stage3-runtime)
+              COMPONENTS="containerd"
+              ;;
+            stage4-kubernetes)
+              COMPONENTS="kubernetes"
+              ;;
+            custom)
+              if [[ -z "${CUSTOM_COMPONENTS}" ]]; then
+                echo "::error::components is required when stage=custom"
+                exit 1
+              fi
+              COMPONENTS="${CUSTOM_COMPONENTS}"
+              ;;
+            all)
+              COMPONENTS="all"
+              ;;
+            *)
+              echo "::error::Unsupported stage: ${STAGE}"
+              exit 1
+              ;;
+          esac
+          echo "components=${COMPONENTS}" >> "${GITHUB_OUTPUT}"
+          echo "Resolved components: ${COMPONENTS}"
+
+      - name: Restore existing binary cache from target branch
+        if: ${{ inputs.commit_changes == 'true' }}
+        run: |
+          set -euo pipefail
+          ARCH="${{ inputs.arch }}"
+          TARGET_BRANCH="${{ inputs.target_branch }}"
+          if git ls-remote --exit-code --heads origin "${TARGET_BRANCH}" >/dev/null 2>&1; then
+            TMP_CACHE="$(mktemp -d)"
+            git fetch origin "${TARGET_BRANCH}"
+            git archive "origin/${TARGET_BRANCH}" "files/${ARCH}" 2>/dev/null | tar -x -C "${TMP_CACHE}" || true
+            if [[ -d "${TMP_CACHE}/files/${ARCH}" ]]; then
+              mkdir -p "files/${ARCH}"
+              rsync -a "${TMP_CACHE}/files/${ARCH}/" "files/${ARCH}/"
+              echo "Restored existing files/${ARCH} from ${TARGET_BRANCH}"
+            else
+              echo "No existing files/${ARCH} found in ${TARGET_BRANCH}"
+            fi
+            rm -rf "${TMP_CACHE}"
+          else
+            echo "Target branch ${TARGET_BRANCH} does not exist yet; starting fresh."
+          fi
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -75,7 +142,8 @@ jobs:
       - name: Build binaries from source tags
         env:
           ARCH: ${{ inputs.arch }}
-          BUILD_COMPONENTS: ${{ inputs.components }}
+          BUILD_COMPONENTS: ${{ steps.resolve-components.outputs.components }}
+          STRICT_PACKAGE: ${{ inputs.strict_package }}
         run: bash scripts/build-default-binaries.sh
 
       - name: Generate download checksum vars
@@ -124,7 +192,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "No built binary cache changes to commit."
           else
-            git commit -m "cache: build default ${{ inputs.arch }} binaries from source"
+            git commit -m "cache: build ${{ inputs.stage }} ${{ inputs.arch }} binaries from source"
             if ! git push origin "HEAD:${TARGET_BRANCH}"; then
               echo "::error::Failed to push ${TARGET_BRANCH}. Check repository Actions write permission and branch protection rules, or run again with a new target_branch such as binary-cache/${{ inputs.arch }}-build-${{ github.run_number }}."
               exit 1
