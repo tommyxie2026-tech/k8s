@@ -1,0 +1,30 @@
+---
+# 0099-container-cleanup.yml
+# 容器模式清理：删除实验节点容器和 Docker 网络，便于本地/CI 反复验证。
+
+- name: 清理容器模式 Kubernetes 实验环境
+  hosts: localhost
+  gather_facts: no
+  vars:
+    cleanup_container_names: >-
+      {{ groups['kube_node'] | default([]) | union(groups['etcd'] | default([])) | unique }}
+  tasks:
+    - name: 确认当前为容器模式
+      assert:
+        that:
+          - hostvars[cleanup_container_names[0]].node_type | default(node_type | default('machine')) == 'container'
+        fail_msg: "0099-container-cleanup.yml 仅用于 node_type=container 的实验环境。"
+        success_msg: "确认容器模式，开始清理。"
+      when: cleanup_container_names | length > 0
+
+    - name: 停止并删除节点容器
+      community.docker.docker_container:
+        name: "{{ item }}"
+        state: absent
+        force_kill: true
+      loop: "{{ cleanup_container_names }}"
+
+    - name: 删除容器网络
+      community.docker.docker_network:
+        name: "{{ container_network_name | default('k8s-net') }}"
+        state: absent
