@@ -1,0 +1,42 @@
+---
+# 0090-stop-services.yml
+# 机器模式安全停止服务：只停止服务，不删除任何数据、证书或二进制。
+
+- name: 停止 Kubernetes 节点服务
+  hosts: kube_node
+  gather_facts: no
+  tasks:
+    - name: 停止 kubelet 与 containerd
+      systemd:
+        name: "{{ item }}"
+        state: stopped
+      failed_when: false
+      loop:
+        - kubelet
+        - containerd
+
+- name: 停止 Kubernetes 控制面与负载均衡服务
+  hosts: kube_master
+  gather_facts: no
+  tasks:
+    - name: 停止控制面与 LB 服务
+      systemd:
+        name: "{{ item }}"
+        state: stopped
+      failed_when: false
+      loop:
+        - kube-apiserver
+        - kube-controller-manager
+        - kube-scheduler
+        - nginx
+        - keepalived
+
+- name: 停止 etcd 服务
+  hosts: etcd
+  gather_facts: no
+  tasks:
+    - name: 停止 etcd
+      systemd:
+        name: etcd
+        state: stopped
+      failed_when: false
