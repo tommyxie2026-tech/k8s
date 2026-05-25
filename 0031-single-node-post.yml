@@ -1,0 +1,53 @@
+---
+# 0031-single-node-post.yml
+# 单节点物理机部署后处理：允许控制面节点承载业务 Pod，并做基础状态检查。
+
+- name: 单节点部署后处理
+  hosts: localhost
+  gather_facts: no
+  vars:
+    single_node_name: "{{ groups['kube_master'][0] }}"
+  tasks:
+    - name: 确认当前为单节点模式
+      assert:
+        that:
+          - cluster_mode | default('ha') == 'single'
+          - groups['kube_master'] | length == 1
+          - groups['etcd'] | length == 1
+          - groups['kube_master'][0] == groups['etcd'][0]
+        fail_msg: "0031-single-node-post.yml 仅适用于 cluster_mode=single，且 kube_master 与 etcd 必须是同一节点。"
+        success_msg: "确认单节点模式，开始 post 配置。"
+
+    - name: 移除 control-plane taint
+      command: >
+        {{ download_arch_dir }}/kubectl taint node {{ single_node_name }} node-role.kubernetes.io/control-plane- --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+      register: remove_control_plane_taint
+      failed_when: false
+      changed_when: remove_control_plane_taint.rc == 0
+
+    - name: 移除 master taint
+      command: >
+        {{ download_arch_dir }}/kubectl taint node {{ single_node_name }} node-role.kubernetes.io/master- --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+      register: remove_master_taint
+      failed_when: false
+      changed_when: remove_master_taint.rc == 0
+
+    - name: 标记单节点角色
+      command: >
+        {{ download_arch_dir }}/kubectl label node {{ single_node_name }} node-role.kubernetes.io/single= --overwrite --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+      changed_when: true
+
+    - name: 等待单节点 Ready
+      command: >
+        {{ download_arch_dir }}/kubectl wait --for=condition=Ready node/{{ single_node_name }} --timeout=180s --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+      changed_when: false
+
+    - name: 输出节点状态
+      command: >
+        {{ download_arch_dir }}/kubectl get node {{ single_node_name }} -o wide --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+      register: single_node_status
+      changed_when: false
+
+    - name: 显示节点状态
+      debug:
+        var: single_node_status.stdout_lines
