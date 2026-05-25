@@ -1,8 +1,9 @@
 # Ansible runtime
 *.retry
 
-# Local binary cache
-/files/
+# Binary cache
+# files/<arch>/ is intentionally versioned through Git LFS for default offline artifacts.
+# Do not ignore files/ here.
 
 # Generated certificates and kubeconfigs
 /ssl_build/
@@ -25,8 +26,13 @@ inventories/prod/*.yml
 # Logs and temp files
 *.log
 /tmp/
+
+# Keep binary archives trackable under files/<arch>/ via Git LFS.
+# Archive files outside files/ remain ignored.
 *.tar.gz
 *.tgz
+!files/**/*.tar.gz
+!files/**/*.tgz
 
 # macOS / editor
 .DS_Store
