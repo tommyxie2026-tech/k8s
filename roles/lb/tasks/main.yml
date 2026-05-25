@@ -1,7 +1,7 @@
 ---
 # roles/lb/tasks/main.yml
 # Nginx 4层代理 + Keepalived VIP 高可用
-# container 模式跳过 Keepalived (无 VIP 漂移需求)
+# single/container 模式跳过 Keepalived，只保留 Nginx 本地代理。
 
 - name: 1. 在 Master 节点安装 nginx
   package:
@@ -12,7 +12,9 @@
   package:
     name: keepalived
     state: present
-  when: node_type == 'machine'
+  when:
+    - node_type == 'machine'
+    - enable_keepalived | bool
 
 - name: 2. 渲染 nginx stream 4层代理配置
   template:
@@ -26,7 +28,9 @@
     src: check_nginx.sh.j2
     dest: /etc/keepalived/check_nginx.sh
     mode: '0755'
-  when: node_type == 'machine'
+  when:
+    - node_type == 'machine'
+    - enable_keepalived | bool
 
 - name: 4. 渲染 Keepalived 主备高可用配置
   template:
@@ -34,7 +38,9 @@
     dest: /etc/keepalived/keepalived.conf
     mode: '0644'
   notify: keepalived config changed
-  when: node_type == 'machine'
+  when:
+    - node_type == 'machine'
+    - enable_keepalived | bool
 
 - name: 5. 启动并守护 Nginx 代理服务
   service:
@@ -47,7 +53,9 @@
     name: keepalived
     state: started
     enabled: yes
-  when: node_type == 'machine'
+  when:
+    - node_type == 'machine'
+    - enable_keepalived | bool
 
 - name: 6. 校验 Nginx 监听端口
   wait_for:
