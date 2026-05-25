@@ -1,0 +1,109 @@
+name: Build default binaries
+
+on:
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: Target architecture, e.g. amd64 or arm64
+        required: true
+        default: amd64
+      components:
+        description: Component list, comma-separated, or all
+        required: true
+        default: all
+      target_branch:
+        description: Branch to store built binary cache
+        required: true
+        default: binary-cache/amd64
+      commit_changes:
+        description: Commit built files back to repository
+        required: true
+        default: 'true'
+
+permissions:
+  contents: write
+
+jobs:
+  build-default-binaries:
+    name: Build default binaries from source tags
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout source branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      - name: Configure Git LFS
+        run: |
+          git lfs install
+          git lfs track "files/**/*"
+
+      - name: Configure Git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: true
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential rsync curl jq python3-yaml pkg-config libseccomp-dev
+
+      - name: Build binaries from source tags
+        env:
+          ARCH: ${{ inputs.arch }}
+          BUILD_COMPONENTS: ${{ inputs.components }}
+        run: bash scripts/build-default-binaries.sh
+
+      - name: Show built files
+        run: |
+          find "files/${{ inputs.arch }}" -maxdepth 2 -type f -printf '%p %s bytes\n' | sort
+
+      - name: Prepare binary cache branch
+        if: ${{ inputs.commit_changes == 'true' }}
+        run: |
+          set -euo pipefail
+          TARGET_BRANCH="${{ inputs.target_branch }}"
+          if git ls-remote --exit-code --heads origin "${TARGET_BRANCH}" >/dev/null 2>&1; then
+            git fetch origin "${TARGET_BRANCH}"
+            git checkout -B "${TARGET_BRANCH}" "origin/${TARGET_BRANCH}"
+          else
+            git checkout --orphan "${TARGET_BRANCH}"
+            git rm -rf . || true
+            git checkout "${{ github.sha }}" -- .gitattributes scripts/build-default-binaries.sh repo/sources.yml || true
+          fi
+
+      - name: Copy built cache into cache branch
+        if: ${{ inputs.commit_changes == 'true' }}
+        run: |
+          set -euo pipefail
+          ARCH="${{ inputs.arch }}"
+          TMP_CACHE="$(mktemp -d)"
+          cp -a "files/${ARCH}" "${TMP_CACHE}/"
+          mkdir -p files
+          rm -rf "files/${ARCH}"
+          cp -a "${TMP_CACHE}/${ARCH}" "files/${ARCH}"
+          rm -rf "${TMP_CACHE}"
+
+      - name: Commit built binary cache
+        if: ${{ inputs.commit_changes == 'true' }}
+        run: |
+          set -euo pipefail
+          TARGET_BRANCH="${{ inputs.target_branch }}"
+          git add .gitattributes "files/${{ inputs.arch }}"
+          if git diff --cached --quiet; then
+            echo "No built binary cache changes to commit."
+          else
+            git commit -m "cache: build default ${{ inputs.arch }} binaries from source"
+            if ! git push origin "HEAD:${TARGET_BRANCH}"; then
+              echo "::error::Failed to push ${TARGET_BRANCH}. Check repository Actions write permission and branch protection rules, or run again with a new target_branch such as binary-cache/${{ inputs.arch }}-build-${{ github.run_number }}."
+              exit 1
+            fi
+          fi
