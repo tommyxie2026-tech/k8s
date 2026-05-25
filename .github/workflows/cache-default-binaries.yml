@@ -35,22 +35,12 @@ jobs:
           git lfs install
           git lfs track "files/**/*"
 
-      - name: Prepare binary cache branch
+      - name: Configure Git identity
         run: |
-          set -euo pipefail
-          TARGET_BRANCH="${{ inputs.target_branch }}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          if git ls-remote --exit-code --heads origin "${TARGET_BRANCH}" >/dev/null 2>&1; then
-            git fetch origin "${TARGET_BRANCH}:${TARGET_BRANCH}"
-            git checkout "${TARGET_BRANCH}"
-            git merge --no-edit origin/${{ github.ref_name }} || true
-          else
-            git checkout -b "${TARGET_BRANCH}"
-          fi
-
-      - name: Download default binaries
+      - name: Download default binaries from source branch
         env:
           ARCH: ${{ inputs.arch }}
         run: bash scripts/download-default-binaries.sh
@@ -58,6 +48,13 @@ jobs:
       - name: Show cached files
         run: |
           find "files/${{ inputs.arch }}" -maxdepth 1 -type f -printf '%p %s bytes\n' | sort
+
+      - name: Switch to binary cache branch
+        if: ${{ inputs.commit_changes == 'true' }}
+        run: |
+          set -euo pipefail
+          TARGET_BRANCH="${{ inputs.target_branch }}"
+          git checkout -B "${TARGET_BRANCH}"
 
       - name: Commit binary cache
         if: ${{ inputs.commit_changes == 'true' }}
@@ -69,5 +66,5 @@ jobs:
             echo "No binary cache changes to commit."
           else
             git commit -m "cache: update default ${{ inputs.arch }} binaries"
-            git push origin "HEAD:${TARGET_BRANCH}"
+            git push --force-with-lease origin "HEAD:${TARGET_BRANCH}"
           fi
