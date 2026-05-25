@@ -1,0 +1,2 @@
+# Version default offline binary cache through Git LFS.
+files/**/* filter=lfs diff=lfs merge=lfs -text
