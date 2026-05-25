@@ -18,6 +18,11 @@
     dest: "{{ download_arch_dir }}/cfssl"
     mode: '0755'
     timeout: "{{ download_timeout }}"
+    checksum: "{{ download_checksums.cfssl | default(omit) }}"
+  register: download_cfssl
+  until: download_cfssl is succeeded
+  retries: "{{ download_retries }}"
+  delay: "{{ download_retry_delay }}"
   delegate_to: localhost
   run_once: true
 
@@ -27,6 +32,11 @@
     dest: "{{ download_arch_dir }}/cfssljson"
     mode: '0755'
     timeout: "{{ download_timeout }}"
+    checksum: "{{ download_checksums.cfssljson | default(omit) }}"
+  register: download_cfssljson
+  until: download_cfssljson is succeeded
+  retries: "{{ download_retries }}"
+  delay: "{{ download_retry_delay }}"
   delegate_to: localhost
   run_once: true
 
@@ -36,6 +46,11 @@
     dest: "{{ download_arch_dir }}/kubectl"
     mode: '0755'
     timeout: "{{ download_timeout }}"
+    checksum: "{{ download_checksums.kubectl | default(omit) }}"
+  register: download_kubectl
+  until: download_kubectl is succeeded
+  retries: "{{ download_retries }}"
+  delay: "{{ download_retry_delay }}"
   delegate_to: localhost
   run_once: true
 
@@ -47,6 +62,11 @@
     dest: "{{ download_arch_dir }}/etcd-v{{ etcd_version }}-linux-{{ target_arch }}.tar.gz"
     mode: '0644'
     timeout: "{{ download_timeout }}"
+    checksum: "{{ download_checksums.etcd | default(omit) }}"
+  register: download_etcd
+  until: download_etcd is succeeded
+  retries: "{{ download_retries }}"
+  delay: "{{ download_retry_delay }}"
   delegate_to: localhost
   run_once: true
 
@@ -58,6 +78,11 @@
     dest: "{{ download_arch_dir }}/kubernetes-server-linux-{{ target_arch }}.tar.gz"
     mode: '0644'
     timeout: "{{ download_timeout }}"
+    checksum: "{{ download_checksums.kubernetes_server | default(omit) }}"
+  register: download_kubernetes_server
+  until: download_kubernetes_server is succeeded
+  retries: "{{ download_retries }}"
+  delay: "{{ download_retry_delay }}"
   delegate_to: localhost
   run_once: true
 
@@ -67,6 +92,11 @@
     dest: "{{ download_arch_dir }}/kubernetes-node-linux-{{ target_arch }}.tar.gz"
     mode: '0644'
     timeout: "{{ download_timeout }}"
+    checksum: "{{ download_checksums.kubernetes_node | default(omit) }}"
+  register: download_kubernetes_node
+  until: download_kubernetes_node is succeeded
+  retries: "{{ download_retries }}"
+  delay: "{{ download_retry_delay }}"
   delegate_to: localhost
   run_once: true
 
@@ -78,6 +108,11 @@
     dest: "{{ download_arch_dir }}/containerd-{{ containerd_version }}-linux-{{ target_arch }}.tar.gz"
     mode: '0644'
     timeout: "{{ download_timeout }}"
+    checksum: "{{ download_checksums.containerd | default(omit) }}"
+  register: download_containerd
+  until: download_containerd is succeeded
+  retries: "{{ download_retries }}"
+  delay: "{{ download_retry_delay }}"
   delegate_to: localhost
   run_once: true
 
@@ -87,6 +122,11 @@
     dest: "{{ download_arch_dir }}/runc"
     mode: '0755'
     timeout: "{{ download_timeout }}"
+    checksum: "{{ download_checksums.runc | default(omit) }}"
+  register: download_runc
+  until: download_runc is succeeded
+  retries: "{{ download_retries }}"
+  delay: "{{ download_retry_delay }}"
   delegate_to: localhost
   run_once: true
 
@@ -96,6 +136,11 @@
     dest: "{{ download_arch_dir }}/containerd.service"
     mode: '0644'
     timeout: "{{ download_timeout }}"
+    checksum: "{{ download_checksums.containerd_service | default(omit) }}"
+  register: download_containerd_service
+  until: download_containerd_service is succeeded
+  retries: "{{ download_retries }}"
+  delay: "{{ download_retry_delay }}"
   delegate_to: localhost
   run_once: true
 
@@ -107,6 +152,11 @@
     dest: "{{ download_arch_dir }}/cni-plugins-linux-{{ target_arch }}-v{{ cni_plugins_version }}.tgz"
     mode: '0644'
     timeout: "{{ download_timeout }}"
+    checksum: "{{ download_checksums.cni_plugins | default(omit) }}"
+  register: download_cni_plugins
+  until: download_cni_plugins is succeeded
+  retries: "{{ download_retries }}"
+  delay: "{{ download_retry_delay }}"
   delegate_to: localhost
   run_once: true
 
@@ -118,5 +168,10 @@
     dest: "{{ download_arch_dir }}/calico.yaml"
     mode: '0644'
     timeout: "{{ download_timeout }}"
+    checksum: "{{ download_checksums.calico_manifest | default(omit) }}"
+  register: download_calico_manifest
+  until: download_calico_manifest is succeeded
+  retries: "{{ download_retries }}"
+  delay: "{{ download_retry_delay }}"
   delegate_to: localhost
   run_once: true
