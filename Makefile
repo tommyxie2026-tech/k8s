@@ -16,6 +16,7 @@ deploy-container:
 	ansible-playbook -i inventories/hosts-container.yml 0001-download-binaries.yml
 	ansible-playbook -i inventories/hosts-container.yml 0000-common-service.yml
 	ansible-playbook -i inventories/hosts-container.yml 0002-common-kubeconfig.yml
+	ansible-playbook -i inventories/hosts-container.yml 0003-encryption-config.yml
 	ansible-playbook -i inventories/hosts-container.yml 0005-install-lb.yml
 	ansible-playbook -i inventories/hosts-container.yml 0010-create-manager-set.yml
 	ansible-playbook -i inventories/hosts-container.yml 0012-manager-set-kube.yml
