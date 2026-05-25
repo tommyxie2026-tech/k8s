@@ -4,27 +4,27 @@ on:
   workflow_dispatch:
     inputs:
       arch:
-        description: Target architecture, e.g. amd64 or arm64
+        description: "Target architecture, e.g. amd64 or arm64"
         required: true
         default: amd64
       stage:
-        description: Build stage: stage1-light, stage2-core, stage3-runtime, stage4-kubernetes, or custom
+        description: "Build stage: stage1-light, stage2-core, stage3-runtime, stage4-kubernetes, custom, or all"
         required: true
         default: stage1-light
       components:
-        description: Component list for custom stage, comma-separated, or all
+        description: "Component list for custom stage, comma-separated, or all"
         required: false
         default: ''
       target_branch:
-        description: Branch to store built binary cache
+        description: "Branch to store built binary cache"
         required: true
         default: binary-cache/amd64
       commit_changes:
-        description: Commit built files back to repository
+        description: "Commit built files back to repository"
         required: true
         default: 'true'
       strict_package:
-        description: Require all deploy archives to be complete
+        description: "Require all deploy archives to be complete"
         required: true
         default: 'false'
 
