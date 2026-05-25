@@ -29,6 +29,31 @@
         fail_msg: "download_dir/download_arch_dir 未定义。"
         success_msg: "下载目录变量已定义。"
 
+    - name: 检查单节点拓扑
+      assert:
+        that:
+          - groups['kube_master'] | length == 1
+          - groups['etcd'] | length == 1
+          - groups['kube_master'][0] == groups['etcd'][0]
+          - groups['compute_servers'] | default([]) | length == 0
+        fail_msg: "cluster_mode=single 要求 kube_master 与 etcd 各 1 个且为同一主机，compute_servers 必须为空。"
+        success_msg: "单节点拓扑检查通过。"
+      when: cluster_mode | default('ha') == 'single'
+
+    - name: 检查单节点证书 SAN
+      assert:
+        that:
+          - MASTER_CERT_HOSTS is defined
+          - "'127.0.0.1' in MASTER_CERT_HOSTS"
+          - "'10.96.0.1' in MASTER_CERT_HOSTS"
+          - "'kubernetes' in MASTER_CERT_HOSTS"
+          - "'kubernetes.default' in MASTER_CERT_HOSTS"
+          - "'kubernetes.default.svc' in MASTER_CERT_HOSTS"
+          - "'kubernetes.default.svc.cluster.local' in MASTER_CERT_HOSTS"
+        fail_msg: "单节点 MASTER_CERT_HOSTS 必须包含 127.0.0.1、10.96.0.1 与 Kubernetes 内置 DNS 名称。"
+        success_msg: "单节点证书 SAN 检查通过。"
+      when: cluster_mode | default('ha') == 'single'
+
     - name: 检查容器模式依赖变量
       assert:
         that:
