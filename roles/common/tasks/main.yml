@@ -22,9 +22,9 @@
   when: node_type == 'machine'
 
 - name: 3. 加载 K8s 所需内核模块
-  modprobe:
-    name: "{{ item }}"
-    state: present
+  command: "modprobe {{ item }}"
+  changed_when: false
+  failed_when: false
   with_items:
     - br_netfilter
     - ip_vs
