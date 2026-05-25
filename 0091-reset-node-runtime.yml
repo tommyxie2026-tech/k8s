@@ -1,0 +1,67 @@
+---
+# 0091-reset-node-runtime.yml
+# 清理 Kubernetes 节点运行态：不删除证书、不删除 kubeconfig、不删除 etcd 数据。
+# 使用前建议先执行 0090-stop-services.yml。
+
+- name: 清理 Kubernetes 节点运行态
+  hosts: kube_node
+  gather_facts: no
+  vars:
+    confirm_reset_node_runtime: false
+    kube_node_runtime_paths:
+      - /var/lib/kubelet/pods
+      - /var/lib/kubelet/plugins
+      - /var/lib/kubelet/plugins_registry
+      - /var/lib/kubelet/device-plugins
+      - /var/lib/cni
+      - /etc/cni/net.d
+      - /run/flannel
+      - /run/calico
+      - /run/containerd/io.containerd.runtime.v2.task/k8s.io
+  tasks:
+    - name: 要求显式确认清理节点运行态
+      assert:
+        that:
+          - confirm_reset_node_runtime | bool
+        fail_msg: "该操作会清理 kubelet/CNI/containerd 运行态目录。请通过 -e confirm_reset_node_runtime=true 显式确认。"
+        success_msg: "已确认清理节点运行态。"
+
+    - name: 输出即将清理的路径
+      debug:
+        var: kube_node_runtime_paths
+
+    - name: 停止 kubelet
+      systemd:
+        name: kubelet
+        state: stopped
+      failed_when: false
+
+    - name: 停止 containerd
+      systemd:
+        name: containerd
+        state: stopped
+      failed_when: false
+
+    - name: 清理节点运行态路径
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop: "{{ kube_node_runtime_paths }}"
+
+    - name: 重新创建 kubelet 基础目录
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - /var/lib/kubelet
+        - /var/lib/cni
+        - /etc/cni/net.d
+
+    - name: 重新加载 systemd
+      systemd:
+        daemon_reload: yes
+
+    - name: 提示后续操作
+      debug:
+        msg: "节点运行态已清理。可重新执行 kubelet/cni 相关部署 playbook，或手动启动 containerd/kubelet。"
