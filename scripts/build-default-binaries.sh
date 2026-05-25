@@ -6,6 +6,7 @@ SOURCES_FILE="${SOURCES_FILE:-repo/sources.yml}"
 WORK_DIR="${WORK_DIR:-.build/src}"
 FILES_DIR="${FILES_DIR:-files/${ARCH}}"
 BUILD_COMPONENTS="${BUILD_COMPONENTS:-all}"
+PACKAGE_DEPLOY_ARCHIVES="${PACKAGE_DEPLOY_ARCHIVES:-true}"
 
 mkdir -p "${WORK_DIR}" "${FILES_DIR}"
 
@@ -144,7 +145,12 @@ PY
   done < "${WORK_DIR}/${component}.outputs"
 done < <(read_manifest)
 
-find "${FILES_DIR}" -type f -maxdepth 2 -print0 | sort -z | xargs -0 sha256sum > "${FILES_DIR}/SHA256SUMS"
+if [[ "${PACKAGE_DEPLOY_ARCHIVES}" == "true" ]]; then
+  echo "==> package deploy-compatible archives"
+  ARCH="${ARCH}" FILES_DIR="${FILES_DIR}" bash scripts/package-built-binaries.sh
+else
+  find "${FILES_DIR}" -type f -maxdepth 2 -print0 | sort -z | xargs -0 sha256sum > "${FILES_DIR}/SHA256SUMS"
+fi
 
 echo "==> build outputs are ready in ${FILES_DIR}"
 echo "==> checksum file: ${FILES_DIR}/SHA256SUMS"
