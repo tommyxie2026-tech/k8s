@@ -9,6 +9,21 @@ on:
       - master
 
 jobs:
+  script-syntax:
+    name: Script syntax checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check shell scripts
+        run: |
+          set -euo pipefail
+          find scripts -type f -name '*.sh' -print0 | while IFS= read -r -d '' script; do
+            echo "==> bash -n ${script}"
+            bash -n "${script}"
+          done
+
   version-consistency:
     name: Version consistency check
     runs-on: ubuntu-latest
