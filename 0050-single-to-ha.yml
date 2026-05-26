@@ -1,0 +1,18 @@
+---
+# 0050-single-to-ha.yml
+# 单节点升级 HA 总入口。
+# 当前第一版只执行 preflight。etcd/control-plane/LB 扩容将在后续 playbook 中分阶段实现。
+
+- import_playbook: 0050-single-to-ha-preflight.yml
+
+- name: 单节点升级 HA - 第一阶段完成提示
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: 输出后续执行计划
+      debug:
+        msg:
+          - "single-to-ha preflight 已通过。"
+          - "下一步必须执行 etcd snapshot 和配置备份。"
+          - "后续将按阶段实现：0051-expand-etcd-members.yml、0052-renew-apiserver-cert-for-ha.yml、0053-expand-control-plane.yml、0054-enable-ha-lb.yml、0055-switch-kubeconfigs-to-vip.yml、0056-expand-workers.yml、0057-finalize-ha-migration.yml。"
+          - "当前总入口不会自动修改 etcd 或控制面状态。"
