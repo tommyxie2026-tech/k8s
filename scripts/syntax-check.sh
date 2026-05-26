@@ -8,6 +8,7 @@ if [[ "${MODE}" == "auto" ]]; then
   case "${INVENTORY}" in
     *hosts-container.yml) MODE="container" ;;
     *hosts-single.yml) MODE="single" ;;
+    *hosts-ha-from-single.yml) MODE="single-to-ha" ;;
     *) MODE="ha" ;;
   esac
 fi
@@ -44,6 +45,12 @@ case "${MODE}" in
       0031-single-node-post.yml
     )
     ;;
+  single-to-ha)
+    PLAYBOOKS=(
+      0050-single-to-ha-preflight.yml
+      0050-single-to-ha.yml
+    )
+    ;;
   ha)
     PLAYBOOKS=(
       "${COMMON_PLAYBOOKS[@]}"
@@ -51,7 +58,7 @@ case "${MODE}" in
     )
     ;;
   *)
-    echo "Unsupported MODE=${MODE}. Expected auto, container, single, or ha." >&2
+    echo "Unsupported MODE=${MODE}. Expected auto, container, single, single-to-ha, or ha." >&2
     exit 2
     ;;
 esac
