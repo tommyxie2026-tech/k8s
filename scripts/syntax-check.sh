@@ -50,6 +50,7 @@ case "${MODE}" in
       0050-single-to-ha-preflight.yml
       0051-single-to-ha-backup.yml
       0052-expand-etcd-members-preflight.yml
+      0053-expand-etcd-members.yml
       0050-single-to-ha.yml
     )
     ;;
