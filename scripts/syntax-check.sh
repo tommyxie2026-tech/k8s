@@ -54,6 +54,7 @@ case "${MODE}" in
       0054-renew-apiserver-cert-for-ha.yml
       0055-expand-control-plane.yml
       0056-enable-ha-lb.yml
+      0057-switch-kubeconfigs-to-vip.yml
       0050-single-to-ha.yml
     )
     ;;
