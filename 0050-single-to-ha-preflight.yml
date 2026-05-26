@@ -1,0 +1,184 @@
+---
+# 0050-single-to-ha-preflight.yml
+# 单节点升级 HA 前置检查。该 playbook 只做检查，不修改集群状态。
+
+- name: 单节点升级 HA - 控制机与目标拓扑检查
+  hosts: localhost
+  gather_facts: yes
+  vars:
+    required_master_cert_hosts:
+      - "127.0.0.1"
+      - "10.96.0.1"
+      - "kubernetes"
+      - "kubernetes.default"
+      - "kubernetes.default.svc"
+      - "kubernetes.default.svc.cluster.local"
+  tasks:
+    - name: 确认已显式允许 single-to-ha preflight
+      assert:
+        that:
+          - confirm_single_to_ha_migration | default(false) | bool
+        fail_msg: "执行 single-to-ha preflight 需要显式传入 -e confirm_single_to_ha_migration=true。"
+        success_msg: "已确认执行 single-to-ha preflight。"
+
+    - name: 检查迁移模式变量
+      assert:
+        that:
+          - migration_mode | default('') == 'single-to-ha'
+          - cluster_mode | default('') == 'ha'
+          - node_type | default('') == 'machine'
+          - original_single_node is defined
+          - original_single_node in groups['kube_master']
+          - original_single_node in groups['etcd']
+        fail_msg: "single-to-ha 迁移要求 migration_mode=single-to-ha、cluster_mode=ha、node_type=machine，且 original_single_node 同时属于 kube_master 和 etcd。"
+        success_msg: "迁移模式变量检查通过。"
+
+    - name: 检查目标 HA 拓扑数量
+      assert:
+        that:
+          - groups['etcd'] | length == 3
+          - groups['kube_master'] | length == 3
+          - groups['kube_node'] | length >= 3
+        fail_msg: "目标 HA 拓扑要求 etcd=3、kube_master=3、kube_node>=3。"
+        success_msg: "目标 HA 拓扑数量检查通过。"
+
+    - name: 检查目标 HA 拓扑关系
+      assert:
+        that:
+          - (groups['etcd'] | difference(groups['kube_master']) | length) == 0
+        fail_msg: "当前迁移设计要求 3 个 etcd 节点同时也是 3 个 kube_master 节点。"
+        success_msg: "目标 HA 拓扑关系检查通过。"
+
+    - name: 检查网络与 LB 变量
+      assert:
+        that:
+          - LB_APISERVER_VIP is defined
+          - LB_APISERVER_PORT is defined
+          - LB_INTERFACE is defined
+          - SERVICE_CIDR is defined
+          - CLUSTER_CIDR is defined
+          - CLUSTER_DNS_SVC_IP is defined
+          - CLUSTER_DOMAIN is defined
+          - enable_keepalived | bool
+        fail_msg: "HA 迁移必须定义 LB、CIDR、DNS 变量，并启用 enable_keepalived。"
+        success_msg: "网络与 LB 变量检查通过。"
+
+    - name: 检查 MASTER_CERT_HOSTS 基础项
+      assert:
+        that:
+          - MASTER_CERT_HOSTS is defined
+          - item in MASTER_CERT_HOSTS
+        fail_msg: "MASTER_CERT_HOSTS 缺少必要 SAN：{{ item }}。"
+        success_msg: "MASTER_CERT_HOSTS 包含必要 SAN：{{ item }}。"
+      loop: "{{ required_master_cert_hosts }}"
+
+    - name: 检查 MASTER_CERT_HOSTS 包含 VIP
+      assert:
+        that:
+          - LB_APISERVER_VIP | string in MASTER_CERT_HOSTS | map('string') | list
+        fail_msg: "MASTER_CERT_HOSTS 必须包含 LB_APISERVER_VIP。"
+        success_msg: "MASTER_CERT_HOSTS 已包含 LB_APISERVER_VIP。"
+
+    - name: 检查 MASTER_CERT_HOSTS 包含所有 master IP
+      assert:
+        that:
+          - hostvars[item].ansible_host | string in MASTER_CERT_HOSTS | map('string') | list
+        fail_msg: "MASTER_CERT_HOSTS 必须包含 master {{ item }} 的 ansible_host={{ hostvars[item].ansible_host }}。"
+        success_msg: "MASTER_CERT_HOSTS 已包含 master {{ item }} IP。"
+      loop: "{{ groups['kube_master'] }}"
+
+    - name: 检查本地集群配置目录变量
+      assert:
+        that:
+          - local_cluster_config_dir is defined
+          - download_arch_dir is defined
+        fail_msg: "local_cluster_config_dir/download_arch_dir 必须定义。"
+        success_msg: "本地集群配置目录变量检查通过。"
+
+- name: 单节点升级 HA - 目标节点连通性与网卡检查
+  hosts: kube_node:etcd
+  gather_facts: yes
+  tasks:
+    - name: 检查目标节点基础信息
+      assert:
+        that:
+          - ansible_hostname is defined
+          - ansible_os_family is defined
+        fail_msg: "无法采集目标节点基础信息，请检查连接、权限和 Python 环境。"
+        success_msg: "目标节点基础信息采集成功。"
+
+    - name: 检查 master 节点 LB_INTERFACE 是否存在
+      assert:
+        that:
+          - LB_INTERFACE in ansible_interfaces
+        fail_msg: "master 节点 {{ inventory_hostname }} 不存在 LB_INTERFACE={{ LB_INTERFACE }}。"
+        success_msg: "master 节点 {{ inventory_hostname }} 存在 LB_INTERFACE={{ LB_INTERFACE }}。"
+      when: inventory_hostname in groups['kube_master']
+
+    - name: 检查 systemd 运行环境
+      stat:
+        path: /run/systemd/system
+      register: systemd_runtime
+
+    - name: 校验 systemd
+      assert:
+        that:
+          - systemd_runtime.stat.exists
+        fail_msg: "目标节点 {{ inventory_hostname }} 未检测到 systemd 运行环境。"
+        success_msg: "目标节点 {{ inventory_hostname }} systemd 检查通过。"
+
+- name: 单节点升级 HA - 当前集群只读状态检查
+  hosts: "{{ original_single_node }}"
+  gather_facts: no
+  tasks:
+    - name: 检查 kubectl 是否存在
+      stat:
+        path: "{{ download_arch_dir }}/kubectl"
+      register: kubectl_stat
+      delegate_to: localhost
+
+    - name: 确认 kubectl 已准备
+      assert:
+        that:
+          - kubectl_stat.stat.exists
+        fail_msg: "缺少 {{ download_arch_dir }}/kubectl，请先执行 0001-download-binaries.yml 或同步二进制缓存。"
+        success_msg: "kubectl 已准备。"
+      delegate_to: localhost
+
+    - name: 检查当前节点列表
+      command: >
+        {{ download_arch_dir }}/kubectl get nodes -o wide --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+      register: current_nodes
+      changed_when: false
+      delegate_to: localhost
+
+    - name: 输出当前节点列表
+      debug:
+        var: current_nodes.stdout_lines
+
+    - name: 检查当前 etcd member list
+      shell: |
+        set -euo pipefail
+        ETCDCTL_API=3 etcdctl \
+          --cacert=/etc/etcd/ssl/ca.pem \
+          --cert=/etc/etcd/ssl/etcd.pem \
+          --key=/etc/etcd/ssl/etcd-key.pem \
+          --endpoints=https://127.0.0.1:2379 \
+          member list
+      args:
+        executable: /bin/bash
+      register: etcd_member_list
+      changed_when: false
+      failed_when: false
+
+    - name: 输出当前 etcd member list
+      debug:
+        var: etcd_member_list.stdout_lines
+
+    - name: 确认当前 etcdctl 可访问且为单 member
+      assert:
+        that:
+          - etcd_member_list.rc == 0
+          - etcd_member_list.stdout_lines | length == 1
+        fail_msg: "当前 etcd 不是可访问的单 member 状态，禁止继续 single-to-ha 迁移。"
+        success_msg: "当前 etcd 为单 member，符合迁移前置条件。"
