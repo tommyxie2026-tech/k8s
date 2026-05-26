@@ -49,6 +49,7 @@ case "${MODE}" in
     PLAYBOOKS=(
       0050-single-to-ha-preflight.yml
       0051-single-to-ha-backup.yml
+      0052-expand-etcd-members-preflight.yml
       0050-single-to-ha.yml
     )
     ;;
