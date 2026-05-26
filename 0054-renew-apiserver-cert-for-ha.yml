@@ -1,0 +1,193 @@
+---
+# 0054-renew-apiserver-cert-for-ha.yml
+# single-to-ha: 为 HA 拓扑重新签发 apiserver 证书。
+# 只更新 apiserver.pem / apiserver-key.pem，不替换 CA、不改 etcd、不扩容 control plane。
+
+- name: single-to-ha 重签 apiserver 证书 - 前置检查
+  hosts: localhost
+  gather_facts: yes
+  vars:
+    required_apiserver_sans:
+      - "127.0.0.1"
+      - "10.96.0.1"
+      - "kubernetes"
+      - "kubernetes.default"
+      - "kubernetes.default.svc"
+      - "kubernetes.default.svc.cluster.local"
+  tasks:
+    - name: 确认已显式允许 apiserver 证书重签
+      assert:
+        that:
+          - confirm_single_to_ha_migration | default(false) | bool
+          - confirm_renew_apiserver_cert | default(false) | bool
+        fail_msg: "重签 HA apiserver 证书必须同时传入 -e confirm_single_to_ha_migration=true -e confirm_renew_apiserver_cert=true。"
+        success_msg: "已确认重签 HA apiserver 证书。"
+
+    - name: 检查迁移模式与目标拓扑
+      assert:
+        that:
+          - migration_mode | default('') == 'single-to-ha'
+          - cluster_mode | default('') == 'ha'
+          - node_type | default('') == 'machine'
+          - groups['kube_master'] | length == 3
+          - LB_APISERVER_VIP is defined
+          - MASTER_CERT_HOSTS is defined
+        fail_msg: "apiserver 证书重签要求 single-to-ha 模式，目标 kube_master=3，且定义 LB_APISERVER_VIP/MASTER_CERT_HOSTS。"
+        success_msg: "迁移模式与目标拓扑检查通过。"
+
+    - name: 检查 MASTER_CERT_HOSTS 包含 Kubernetes 基础 SAN
+      assert:
+        that:
+          - item in MASTER_CERT_HOSTS
+        fail_msg: "MASTER_CERT_HOSTS 缺少必要 SAN：{{ item }}。"
+        success_msg: "MASTER_CERT_HOSTS 包含必要 SAN：{{ item }}。"
+      loop: "{{ required_apiserver_sans }}"
+
+    - name: 检查 MASTER_CERT_HOSTS 包含 VIP
+      assert:
+        that:
+          - LB_APISERVER_VIP | string in MASTER_CERT_HOSTS | map('string') | list
+        fail_msg: "MASTER_CERT_HOSTS 必须包含 LB_APISERVER_VIP={{ LB_APISERVER_VIP }}。"
+        success_msg: "MASTER_CERT_HOSTS 已包含 VIP。"
+
+    - name: 检查 MASTER_CERT_HOSTS 包含所有 master IP
+      assert:
+        that:
+          - hostvars[item].ansible_host | string in MASTER_CERT_HOSTS | map('string') | list
+        fail_msg: "MASTER_CERT_HOSTS 必须包含 master {{ item }} IP：{{ hostvars[item].ansible_host }}。"
+        success_msg: "MASTER_CERT_HOSTS 已包含 master {{ item }} IP。"
+      loop: "{{ groups['kube_master'] }}"
+
+    - name: 检查本地 CA 与 cfssl 文件
+      stat:
+        path: "{{ item }}"
+      loop:
+        - "{{ local_cluster_config_dir }}/ssl/ca.pem"
+        - "{{ local_cluster_config_dir }}/ssl/ca-key.pem"
+        - "{{ local_cluster_config_dir }}/ssl/ca-config.json"
+        - "{{ download_arch_dir }}/cfssl"
+        - "{{ download_arch_dir }}/cfssljson"
+      register: apiserver_cert_required_files
+
+    - name: 计算缺失的证书重签依赖
+      set_fact:
+        missing_apiserver_cert_required_files: >-
+          {{ apiserver_cert_required_files.results
+             | selectattr('stat.exists', 'equalto', false)
+             | map(attribute='item')
+             | list }}
+
+    - name: 确认证书重签依赖完整
+      assert:
+        that:
+          - missing_apiserver_cert_required_files | length == 0
+        fail_msg: "缺失证书重签依赖：{{ missing_apiserver_cert_required_files }}。"
+        success_msg: "证书重签依赖完整。"
+
+- name: single-to-ha 重签 apiserver 证书 - 本地生成
+  hosts: localhost
+  gather_facts: yes
+  tasks:
+    - name: 设置证书备份目录
+      set_fact:
+        apiserver_cert_backup_dir: "{{ playbook_dir }}/backup/single-to-ha/apiserver-cert-{{ ansible_date_time.iso8601_basic_short }}"
+
+    - name: 创建证书备份目录
+      file:
+        path: "{{ apiserver_cert_backup_dir }}"
+        state: directory
+        mode: '0700'
+
+    - name: 备份旧 apiserver 证书
+      copy:
+        src: "{{ local_cluster_config_dir }}/ssl/{{ item }}"
+        dest: "{{ apiserver_cert_backup_dir }}/{{ item }}"
+        mode: '0600'
+      loop:
+        - apiserver.pem
+        - apiserver-key.pem
+      failed_when: false
+
+    - name: 写入 HA apiserver CSR
+      copy:
+        dest: "{{ local_cluster_config_dir }}/ssl/apiserver-ha-csr.json"
+        mode: '0600'
+        content: >-
+          {"CN":"kubernetes","hosts":{{ MASTER_CERT_HOSTS | to_json }},"key":{"algo":"{{ cert_key_algo }}","size":{{ cert_key_size }}},"names":[{"C":"{{ cert_subject.C }}","ST":"{{ cert_subject.ST }}","L":"{{ cert_subject.L }}","O":"{{ cert_subject.O }}","OU":"{{ cert_subject.OU }}"}]}
+
+    - name: 强制重签 HA apiserver 证书
+      shell: |
+        set -euo pipefail
+        rm -f apiserver-ha.pem apiserver-ha-key.pem apiserver-ha.csr
+        {{ download_arch_dir }}/cfssl gencert \
+          -ca=ca.pem \
+          -ca-key=ca-key.pem \
+          -config=ca-config.json \
+          -profile=kubernetes \
+          apiserver-ha-csr.json | {{ download_arch_dir }}/cfssljson -bare apiserver-ha
+        cp apiserver-ha.pem apiserver.pem
+        cp apiserver-ha-key.pem apiserver-key.pem
+        chmod 0600 apiserver.pem apiserver-key.pem
+      args:
+        chdir: "{{ local_cluster_config_dir }}/ssl"
+        executable: /bin/bash
+      changed_when: true
+
+    - name: 输出证书备份目录
+      debug:
+        msg: "old apiserver cert backup dir: {{ apiserver_cert_backup_dir }}"
+
+- name: single-to-ha 重签 apiserver 证书 - 分发并滚动重启已存在的 apiserver
+  hosts: kube_master
+  gather_facts: no
+  serial: 1
+  tasks:
+    - name: 检查当前 master 是否已安装 kube-apiserver service
+      stat:
+        path: /etc/systemd/system/kube-apiserver.service
+      register: kube_apiserver_service_stat
+
+    - name: 跳过尚未安装 kube-apiserver 的新 master
+      meta: end_host
+      when: not kube_apiserver_service_stat.stat.exists
+
+    - name: 分发新的 apiserver 证书
+      copy:
+        src: "{{ local_cluster_config_dir }}/ssl/{{ item }}"
+        dest: "/etc/kubernetes/ssl/{{ item }}"
+        mode: '0600'
+      loop:
+        - apiserver.pem
+        - apiserver-key.pem
+
+    - name: 重启 kube-apiserver
+      systemd:
+        name: kube-apiserver
+        state: restarted
+        daemon_reload: yes
+
+    - name: 等待本机 apiserver readyz
+      uri:
+        url: "https://127.0.0.1:6443/readyz"
+        method: GET
+        validate_certs: no
+        status_code: 200
+      register: local_apiserver_readyz
+      retries: 30
+      delay: 5
+      until: local_apiserver_readyz.status == 200
+
+- name: single-to-ha 重签 apiserver 证书 - 验证当前入口
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: 检查当前 kubectl readyz
+      command: >
+        {{ download_arch_dir }}/kubectl get --raw=/readyz
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+      register: apiserver_ready_after_renew
+      changed_when: false
+
+    - name: 输出验证结果
+      debug:
+        var: apiserver_ready_after_renew.stdout_lines
