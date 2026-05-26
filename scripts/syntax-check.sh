@@ -53,6 +53,7 @@ case "${MODE}" in
       0053-expand-etcd-members.yml
       0054-renew-apiserver-cert-for-ha.yml
       0055-expand-control-plane.yml
+      0056-enable-ha-lb.yml
       0050-single-to-ha.yml
     )
     ;;
