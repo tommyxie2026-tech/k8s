@@ -1,0 +1,226 @@
+---
+# 0051-single-to-ha-backup.yml
+# 单节点升级 HA 前的专用备份 playbook。
+# 该 playbook 只做备份与状态采集，不修改集群拓扑。
+
+- name: 单节点升级 HA - 初始化本地备份目录
+  hosts: localhost
+  gather_facts: yes
+  tasks:
+    - name: 确认已显式允许 single-to-ha 备份
+      assert:
+        that:
+          - confirm_single_to_ha_migration | default(false) | bool
+        fail_msg: "执行 single-to-ha backup 需要显式传入 -e confirm_single_to_ha_migration=true。"
+        success_msg: "已确认执行 single-to-ha backup。"
+
+    - name: 生成备份时间戳
+      set_fact:
+        single_to_ha_backup_timestamp: "{{ ansible_date_time.iso8601_basic_short }}"
+
+    - name: 设置备份目录
+      set_fact:
+        single_to_ha_backup_dir: "{{ playbook_dir }}/backup/single-to-ha/{{ single_to_ha_backup_timestamp }}"
+
+    - name: 创建备份目录结构
+      file:
+        path: "{{ single_to_ha_backup_dir }}/{{ item }}"
+        state: directory
+        mode: '0700'
+      loop:
+        - etcd
+        - local-config
+        - remote-pki
+        - cluster-state
+        - logs
+
+    - name: 写入备份元信息
+      copy:
+        dest: "{{ single_to_ha_backup_dir }}/metadata.yml"
+        mode: '0600'
+        content: |
+          ---
+          backup_type: single-to-ha
+          timestamp: "{{ single_to_ha_backup_timestamp }}"
+          inventory: "{{ inventory_file | default('unknown') }}"
+          original_single_node: "{{ original_single_node | default('unknown') }}"
+          target_etcd_hosts: {{ groups['etcd'] | default([]) | to_json }}
+          target_kube_master_hosts: {{ groups['kube_master'] | default([]) | to_json }}
+          target_kube_node_hosts: {{ groups['kube_node'] | default([]) | to_json }}
+          lb_apiserver_vip: "{{ LB_APISERVER_VIP | default('') }}"
+          service_cidr: "{{ SERVICE_CIDR | default('') }}"
+          cluster_cidr: "{{ CLUSTER_CIDR | default('') }}"
+          cluster_dns_svc_ip: "{{ CLUSTER_DNS_SVC_IP | default('') }}"
+          cluster_domain: "{{ CLUSTER_DOMAIN | default('') }}"
+
+    - name: 输出备份目录
+      debug:
+        msg: "single-to-ha backup dir: {{ single_to_ha_backup_dir }}"
+
+- name: 单节点升级 HA - 采集 Kubernetes 当前状态
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: 检查 kubectl 是否存在
+      stat:
+        path: "{{ download_arch_dir }}/kubectl"
+      register: kubectl_stat
+
+    - name: 确认 kubectl 已准备
+      assert:
+        that:
+          - kubectl_stat.stat.exists
+        fail_msg: "缺少 {{ download_arch_dir }}/kubectl，请先执行 0001-download-binaries.yml 或同步二进制缓存。"
+        success_msg: "kubectl 已准备。"
+
+    - name: 设置 kubeconfig 路径
+      set_fact:
+        migration_admin_kubeconfig: "{{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig"
+
+    - name: 检查 admin kubeconfig 是否存在
+      stat:
+        path: "{{ migration_admin_kubeconfig }}"
+      register: admin_kubeconfig_stat
+
+    - name: 确认 admin kubeconfig 已准备
+      assert:
+        that:
+          - admin_kubeconfig_stat.stat.exists
+        fail_msg: "缺少 {{ migration_admin_kubeconfig }}，无法采集集群状态。"
+        success_msg: "admin kubeconfig 已准备。"
+
+    - name: 采集 Kubernetes 资源状态
+      shell: |
+        set -euo pipefail
+        kubectl_bin="{{ download_arch_dir }}/kubectl"
+        kubeconfig="{{ migration_admin_kubeconfig }}"
+        out_dir="{{ single_to_ha_backup_dir }}/cluster-state"
+
+        "${kubectl_bin}" --kubeconfig="${kubeconfig}" get nodes -o wide > "${out_dir}/nodes-wide.txt"
+        "${kubectl_bin}" --kubeconfig="${kubeconfig}" get pods -A -o wide > "${out_dir}/pods-all-wide.txt"
+        "${kubectl_bin}" --kubeconfig="${kubeconfig}" get svc -A -o wide > "${out_dir}/services-all-wide.txt"
+        "${kubectl_bin}" --kubeconfig="${kubeconfig}" get endpoints -A -o wide > "${out_dir}/endpoints-all-wide.txt"
+        "${kubectl_bin}" --kubeconfig="${kubeconfig}" get events -A --sort-by=.lastTimestamp > "${out_dir}/events-all.txt" || true
+        "${kubectl_bin}" --kubeconfig="${kubeconfig}" get cm -n kube-system -o yaml > "${out_dir}/kube-system-configmaps.yaml" || true
+        "${kubectl_bin}" --kubeconfig="${kubeconfig}" get endpoints kubernetes -o yaml > "${out_dir}/kubernetes-endpoints.yaml"
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: 归档本地集群配置目录
+      archive:
+        path: "{{ local_cluster_config_dir }}"
+        dest: "{{ single_to_ha_backup_dir }}/local-config/local-cluster-config.tgz"
+        format: gz
+        mode: '0600'
+      when: local_cluster_config_dir is defined
+
+- name: 单节点升级 HA - 备份原单节点远端关键文件和 etcd snapshot
+  hosts: "{{ original_single_node }}"
+  gather_facts: yes
+  tasks:
+    - name: 创建远端临时备份目录
+      tempfile:
+        state: directory
+        suffix: single-to-ha-backup
+      register: remote_backup_tmp
+
+    - name: 检查 etcdctl 是否存在
+      command: which etcdctl
+      register: etcdctl_which
+      changed_when: false
+      failed_when: false
+
+    - name: 确认 etcdctl 可用
+      assert:
+        that:
+          - etcdctl_which.rc == 0
+        fail_msg: "原单节点 {{ inventory_hostname }} 上找不到 etcdctl，无法生成 etcd snapshot。"
+        success_msg: "etcdctl 可用。"
+
+    - name: 生成 etcd snapshot
+      shell: |
+        set -euo pipefail
+        ETCDCTL_API=3 etcdctl \
+          --cacert=/etc/etcd/ssl/ca.pem \
+          --cert=/etc/etcd/ssl/etcd.pem \
+          --key=/etc/etcd/ssl/etcd-key.pem \
+          --endpoints=https://127.0.0.1:2379 \
+          snapshot save "{{ remote_backup_tmp.path }}/etcd-snapshot.db"
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: 校验 etcd snapshot status
+      shell: |
+        set -euo pipefail
+        ETCDCTL_API=3 etcdctl snapshot status "{{ remote_backup_tmp.path }}/etcd-snapshot.db" -w table > "{{ remote_backup_tmp.path }}/etcd-snapshot-status.txt"
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: 采集 etcd member list
+      shell: |
+        set -euo pipefail
+        ETCDCTL_API=3 etcdctl \
+          --cacert=/etc/etcd/ssl/ca.pem \
+          --cert=/etc/etcd/ssl/etcd.pem \
+          --key=/etc/etcd/ssl/etcd-key.pem \
+          --endpoints=https://127.0.0.1:2379 \
+          member list > "{{ remote_backup_tmp.path }}/etcd-member-list.txt"
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: 归档远端 Kubernetes PKI 目录
+      archive:
+        path:
+          - /etc/kubernetes/pki
+          - /etc/etcd/ssl
+        dest: "{{ remote_backup_tmp.path }}/remote-pki.tgz"
+        format: gz
+        mode: '0600'
+      failed_when: false
+
+    - name: 拉取 etcd snapshot
+      fetch:
+        src: "{{ remote_backup_tmp.path }}/etcd-snapshot.db"
+        dest: "{{ single_to_ha_backup_dir }}/etcd/etcd-snapshot.db"
+        flat: true
+
+    - name: 拉取 etcd snapshot status
+      fetch:
+        src: "{{ remote_backup_tmp.path }}/etcd-snapshot-status.txt"
+        dest: "{{ single_to_ha_backup_dir }}/etcd/etcd-snapshot-status.txt"
+        flat: true
+
+    - name: 拉取 etcd member list
+      fetch:
+        src: "{{ remote_backup_tmp.path }}/etcd-member-list.txt"
+        dest: "{{ single_to_ha_backup_dir }}/etcd/etcd-member-list.txt"
+        flat: true
+
+    - name: 拉取远端 PKI 归档
+      fetch:
+        src: "{{ remote_backup_tmp.path }}/remote-pki.tgz"
+        dest: "{{ single_to_ha_backup_dir }}/remote-pki/remote-pki.tgz"
+        flat: true
+      failed_when: false
+
+    - name: 清理远端临时备份目录
+      file:
+        path: "{{ remote_backup_tmp.path }}"
+        state: absent
+      when: remote_backup_tmp.path is defined
+
+- name: 单节点升级 HA - 备份完成提示
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: 输出备份完成信息
+      debug:
+        msg:
+          - "single-to-ha backup completed."
+          - "backup dir: {{ single_to_ha_backup_dir }}"
+          - "请确认 etcd/etcd-snapshot-status.txt、cluster-state/nodes-wide.txt、remote-pki/remote-pki.tgz 均存在且内容符合预期。"
+          - "确认备份有效后，才允许进入 etcd member 扩容阶段。"
