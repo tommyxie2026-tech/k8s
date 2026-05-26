@@ -1,0 +1,179 @@
+---
+# roles/etcd_member_expand/tasks/main.yml
+# single-to-ha: 将新 etcd member 加入现有单 member etcd 集群。
+# 该 role 应以 serial: 1 运行在新 etcd 节点上。
+
+- name: 确认当前 host 不是原单节点
+  assert:
+    that:
+      - inventory_hostname != original_single_node
+    fail_msg: "etcd_member_expand 只能运行在新 etcd member 上，不能运行在 original_single_node。"
+    success_msg: "{{ inventory_hostname }} 是新 etcd member。"
+
+- name: 计算当前 member 参数
+  set_fact:
+    current_etcd_name: "{{ etcd_name | default(inventory_hostname) }}"
+    current_peer_url: "https://{{ ansible_host }}:{{ etcd_peer_port }}"
+    original_etcd_endpoint: "https://{{ hostvars[original_single_node].ansible_host }}:{{ etcd_client_port }}"
+
+- name: 创建 etcd 目录
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - "{{ etcd_data_dir }}"
+    - "{{ etcd_ssl_dir }}"
+
+- name: 确认新 member 数据目录为空
+  find:
+    paths: "{{ etcd_data_dir }}"
+    file_type: any
+    hidden: true
+  register: new_member_data_dir_files
+
+- name: 阻断非空数据目录
+  assert:
+    that:
+      - new_member_data_dir_files.matched | int == 0
+    fail_msg: "{{ inventory_hostname }} 的 {{ etcd_data_dir }} 非空，禁止加入现有 etcd 集群。"
+    success_msg: "{{ inventory_hostname }} 的 {{ etcd_data_dir }} 为空。"
+
+- name: 分发 etcd 二进制
+  unarchive:
+    src: "{{ download_arch_dir }}/etcd-v{{ etcd_version }}-linux-{{ target_arch }}.tar.gz"
+    dest: /usr/local/bin
+    remote_src: no
+    extra_opts:
+      - --strip-components=1
+      - "etcd-v{{ etcd_version }}-linux-{{ target_arch }}/etcd"
+      - "etcd-v{{ etcd_version }}-linux-{{ target_arch }}/etcdctl"
+    mode: '0755'
+
+- name: 分发 etcd 证书
+  copy:
+    src: "{{ local_cluster_config_dir }}/etcd/{{ item }}"
+    dest: "{{ etcd_ssl_dir }}/{{ item }}"
+    mode: '0600'
+  loop:
+    - ca.pem
+    - etcd.pem
+    - etcd-key.pem
+
+- name: 查询当前 etcd member list
+  shell: |
+    set -euo pipefail
+    ETCDCTL_API=3 etcdctl \
+      --cacert={{ etcd_ssl_dir }}/ca.pem \
+      --cert={{ etcd_ssl_dir }}/etcd.pem \
+      --key={{ etcd_ssl_dir }}/etcd-key.pem \
+      --endpoints={{ original_etcd_endpoint }} \
+      member list
+  args:
+    executable: /bin/bash
+  register: member_list_before_add
+  changed_when: false
+  delegate_to: "{{ original_single_node }}"
+
+- name: 判断当前 member 是否已存在
+  set_fact:
+    current_member_already_exists: "{{ current_etcd_name in member_list_before_add.stdout }}"
+
+- name: 添加新 etcd member
+  shell: |
+    set -euo pipefail
+    ETCDCTL_API=3 etcdctl \
+      --cacert={{ etcd_ssl_dir }}/ca.pem \
+      --cert={{ etcd_ssl_dir }}/etcd.pem \
+      --key={{ etcd_ssl_dir }}/etcd-key.pem \
+      --endpoints={{ original_etcd_endpoint }} \
+      member add {{ current_etcd_name }} --peer-urls={{ current_peer_url }}
+  args:
+    executable: /bin/bash
+  register: member_add_result
+  changed_when: true
+  delegate_to: "{{ original_single_node }}"
+  when: not current_member_already_exists | bool
+
+- name: 输出 member add 结果
+  debug:
+    var: member_add_result.stdout_lines
+  when: member_add_result is defined and member_add_result.stdout_lines is defined
+
+- name: 渲染 etcd systemd service(existing cluster)
+  template:
+    src: "{{ playbook_dir }}/roles/etcd/templates/etcd.service.j2"
+    dest: /etc/systemd/system/etcd.service
+    mode: '0644'
+  vars:
+    etcd_initial_cluster_state: existing
+
+- name: daemon-reload
+  systemd:
+    daemon_reload: yes
+
+- name: 启动新 etcd member
+  systemd:
+    name: etcd
+    state: restarted
+    enabled: yes
+
+- name: 等待新 etcd member client 端口可用
+  wait_for:
+    host: "{{ ansible_host }}"
+    port: "{{ etcd_client_port }}"
+    timeout: 120
+
+- name: 检查新 member endpoint health
+  shell: |
+    set -euo pipefail
+    ETCDCTL_API=3 etcdctl \
+      --cacert={{ etcd_ssl_dir }}/ca.pem \
+      --cert={{ etcd_ssl_dir }}/etcd.pem \
+      --key={{ etcd_ssl_dir }}/etcd-key.pem \
+      --endpoints=https://{{ ansible_host }}:{{ etcd_client_port }} \
+      endpoint health
+  args:
+    executable: /bin/bash
+  register: new_member_health
+  changed_when: false
+  retries: "{{ etcd_expand_health_retries }}"
+  delay: "{{ etcd_expand_health_delay }}"
+  until: new_member_health.rc == 0
+
+- name: 检查集群 endpoint health
+  shell: |
+    set -euo pipefail
+    endpoints="{% for host in groups['etcd'] %}https://{{ hostvars[host].ansible_host }}:{{ etcd_client_port }}{% if not loop.last %},{% endif %}{% endfor %}"
+    ETCDCTL_API=3 etcdctl \
+      --cacert={{ etcd_ssl_dir }}/ca.pem \
+      --cert={{ etcd_ssl_dir }}/etcd.pem \
+      --key={{ etcd_ssl_dir }}/etcd-key.pem \
+      --endpoints="${endpoints}" \
+      endpoint health --cluster
+  args:
+    executable: /bin/bash
+  register: cluster_health_after_member
+  changed_when: false
+  delegate_to: "{{ original_single_node }}"
+  failed_when: false
+
+- name: 输出集群健康状态
+  debug:
+    var: cluster_health_after_member.stdout_lines
+
+- name: 当前 member 扩容失败时输出回滚提示
+  debug:
+    msg:
+      - "etcd cluster health check failed after adding {{ current_etcd_name }}."
+      - "请在 original_single_node 上人工确认 member id 后执行："
+      - "ETCDCTL_API=3 etcdctl --cacert={{ etcd_ssl_dir }}/ca.pem --cert={{ etcd_ssl_dir }}/etcd.pem --key={{ etcd_ssl_dir }}/etcd-key.pem --endpoints={{ original_etcd_endpoint }} member list"
+      - "ETCDCTL_API=3 etcdctl ... member remove <member-id>"
+  when: cluster_health_after_member.rc != 0
+
+- name: 阻断失败的 member 扩容
+  assert:
+    that:
+      - cluster_health_after_member.rc == 0
+    fail_msg: "添加 {{ current_etcd_name }} 后 etcd 集群健康检查失败。已输出人工回滚提示。"
+    success_msg: "添加 {{ current_etcd_name }} 后 etcd 集群健康检查通过。"
