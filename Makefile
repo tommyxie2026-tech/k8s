@@ -1,13 +1,17 @@
-.PHONY: syntax-check syntax-check-single preflight-container deploy-container deploy-container-offline deploy-single deploy-single-offline cleanup-container smoke-test
+.PHONY: syntax-check syntax-check-single syntax-check-single-to-ha preflight-container deploy-container deploy-container-offline deploy-single deploy-single-offline migrate-single-to-ha-preflight migrate-single-to-ha cleanup-container smoke-test
 
 INVENTORY ?= inventories/hosts-container.yml
 KUBECONFIG_PATH ?= $(HOME)/.kube/config
+CONFIRM_SINGLE_TO_HA ?= false
 
 syntax-check:
 	INVENTORY=$(INVENTORY) bash scripts/syntax-check.sh
 
 syntax-check-single:
 	INVENTORY=inventories/hosts-single.yml bash scripts/syntax-check.sh
+
+syntax-check-single-to-ha:
+	INVENTORY=inventories/hosts-ha-from-single.yml MODE=single-to-ha bash scripts/syntax-check.sh
 
 preflight-container:
 	ansible-playbook -i inventories/hosts-container.yml 0000-container-infra.yml
@@ -62,6 +66,12 @@ deploy-single-offline:
 	ansible-playbook -i inventories/hosts-single.yml 0012-manager-set-kube.yml
 	ansible-playbook -i inventories/hosts-single.yml 0030-install-cni.yml
 	ansible-playbook -i inventories/hosts-single.yml 0031-single-node-post.yml
+
+migrate-single-to-ha-preflight:
+	ansible-playbook -i inventories/hosts-ha-from-single.yml 0050-single-to-ha-preflight.yml -e confirm_single_to_ha_migration=$(CONFIRM_SINGLE_TO_HA)
+
+migrate-single-to-ha:
+	ansible-playbook -i inventories/hosts-ha-from-single.yml 0050-single-to-ha.yml -e confirm_single_to_ha_migration=$(CONFIRM_SINGLE_TO_HA)
 
 cleanup-container:
 	ansible-playbook -i inventories/hosts-container.yml 0099-container-cleanup.yml
