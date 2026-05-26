@@ -1,0 +1,78 @@
+---
+# 0053-expand-etcd-members.yml
+# single-to-ha: 将 etcd 从单 member 扩容为 3 member。
+# 高风险 playbook：必须先完成 0050 preflight、0051 backup、0052 etcd preflight。
+
+- import_playbook: 0052-expand-etcd-members-preflight.yml
+
+- name: single-to-ha 扩容 etcd member
+  hosts: etcd
+  gather_facts: yes
+  serial: 1
+  vars:
+    new_etcd_members: "{{ groups['etcd'] | difference([original_single_node]) }}"
+  pre_tasks:
+    - name: 确认已显式允许 etcd member 扩容
+      assert:
+        that:
+          - confirm_single_to_ha_migration | default(false) | bool
+          - confirm_expand_etcd_members | default(false) | bool
+        fail_msg: "执行 etcd member 扩容必须同时传入 -e confirm_single_to_ha_migration=true -e confirm_expand_etcd_members=true。"
+        success_msg: "已确认执行 etcd member 扩容。"
+      run_once: true
+      delegate_to: localhost
+
+    - name: 跳过原单节点
+      meta: end_host
+      when: inventory_hostname == original_single_node
+
+  roles:
+    - etcd_member_expand
+
+- name: single-to-ha etcd 扩容完成检查
+  hosts: "{{ original_single_node }}"
+  gather_facts: no
+  tasks:
+    - name: 检查最终 etcd member list
+      shell: |
+        set -euo pipefail
+        ETCDCTL_API=3 etcdctl \
+          --cacert=/etc/etcd/ssl/ca.pem \
+          --cert=/etc/etcd/ssl/etcd.pem \
+          --key=/etc/etcd/ssl/etcd-key.pem \
+          --endpoints=https://127.0.0.1:2379 \
+          member list
+      args:
+        executable: /bin/bash
+      register: final_member_list
+      changed_when: false
+
+    - name: 输出最终 member list
+      debug:
+        var: final_member_list.stdout_lines
+
+    - name: 确认最终 etcd member 数量为 3
+      assert:
+        that:
+          - final_member_list.stdout_lines | length == 3
+        fail_msg: "etcd 扩容完成后 member 数量不是 3，请检查 member list。"
+        success_msg: "etcd member 数量已达到 3。"
+
+    - name: 检查最终 etcd endpoint health --cluster
+      shell: |
+        set -euo pipefail
+        endpoints="{% for host in groups['etcd'] %}https://{{ hostvars[host].ansible_host }}:2379{% if not loop.last %},{% endif %}{% endfor %}"
+        ETCDCTL_API=3 etcdctl \
+          --cacert=/etc/etcd/ssl/ca.pem \
+          --cert=/etc/etcd/ssl/etcd.pem \
+          --key=/etc/etcd/ssl/etcd-key.pem \
+          --endpoints="${endpoints}" \
+          endpoint health --cluster
+      args:
+        executable: /bin/bash
+      register: final_endpoint_health
+      changed_when: false
+
+    - name: 输出最终 endpoint health
+      debug:
+        var: final_endpoint_health.stdout_lines
