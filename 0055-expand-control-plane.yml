@@ -1,0 +1,159 @@
+---
+# 0055-expand-control-plane.yml
+# single-to-ha: 扩容 Kubernetes control plane 到 3 master。
+# 前置条件：0053-expand-etcd-members.yml 已完成，0054-renew-apiserver-cert-for-ha.yml 已完成。
+
+- name: single-to-ha 扩容 control plane - 前置检查
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: 确认已显式允许 control plane 扩容
+      assert:
+        that:
+          - confirm_single_to_ha_migration | default(false) | bool
+          - confirm_expand_control_plane | default(false) | bool
+        fail_msg: "扩容 control plane 必须同时传入 -e confirm_single_to_ha_migration=true -e confirm_expand_control_plane=true。"
+        success_msg: "已确认扩容 control plane。"
+
+    - name: 检查迁移模式与目标拓扑
+      assert:
+        that:
+          - migration_mode | default('') == 'single-to-ha'
+          - cluster_mode | default('') == 'ha'
+          - node_type | default('') == 'machine'
+          - original_single_node is defined
+          - groups['etcd'] | length == 3
+          - groups['kube_master'] | length == 3
+          - (groups['etcd'] | difference(groups['kube_master']) | length) == 0
+        fail_msg: "control plane 扩容要求 single-to-ha 模式，且目标 etcd=3、kube_master=3、etcd 节点全部属于 kube_master。"
+        success_msg: "迁移模式与目标拓扑检查通过。"
+
+    - name: 检查控制面本地依赖文件
+      stat:
+        path: "{{ item }}"
+      loop:
+        - "{{ download_arch_dir }}/kubernetes-server-linux-{{ target_arch }}.tar.gz"
+        - "{{ download_arch_dir }}/kubectl"
+        - "{{ local_cluster_config_dir }}/ssl/apiserver.pem"
+        - "{{ local_cluster_config_dir }}/ssl/apiserver-key.pem"
+        - "{{ local_cluster_config_dir }}/ssl/ca.pem"
+        - "{{ local_cluster_config_dir }}/ssl/sa.key"
+        - "{{ local_cluster_config_dir }}/ssl/sa.pub"
+        - "{{ local_cluster_config_dir }}/ssl/etcd-client.pem"
+        - "{{ local_cluster_config_dir }}/ssl/etcd-client-key.pem"
+        - "{{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig"
+        - "{{ local_cluster_config_dir }}/kubeconfig/kube-controller-manager.kubeconfig"
+        - "{{ local_cluster_config_dir }}/kubeconfig/kube-scheduler.kubeconfig"
+      register: control_plane_required_files
+
+    - name: 计算缺失的控制面依赖文件
+      set_fact:
+        missing_control_plane_required_files: >-
+          {{ control_plane_required_files.results
+             | selectattr('stat.exists', 'equalto', false)
+             | map(attribute='item')
+             | list }}
+
+    - name: 确认控制面依赖文件完整
+      assert:
+        that:
+          - missing_control_plane_required_files | length == 0
+        fail_msg: "缺失控制面扩容依赖文件：{{ missing_control_plane_required_files }}。"
+        success_msg: "控制面扩容依赖文件完整。"
+
+- name: single-to-ha 扩容 control plane - etcd 3 member 健康检查
+  hosts: "{{ original_single_node }}"
+  gather_facts: no
+  tasks:
+    - name: 检查 etcd member list
+      shell: |
+        set -euo pipefail
+        ETCDCTL_API=3 etcdctl \
+          --cacert=/etc/etcd/ssl/ca.pem \
+          --cert=/etc/etcd/ssl/etcd.pem \
+          --key=/etc/etcd/ssl/etcd-key.pem \
+          --endpoints=https://127.0.0.1:2379 \
+          member list
+      args:
+        executable: /bin/bash
+      register: control_plane_etcd_member_list
+      changed_when: false
+
+    - name: 确认 etcd 已是 3 member
+      assert:
+        that:
+          - control_plane_etcd_member_list.stdout_lines | length == 3
+        fail_msg: "control plane 扩容前要求 etcd 已扩容为 3 member。"
+        success_msg: "etcd member 数量为 3。"
+
+    - name: 检查 etcd endpoint health --cluster
+      shell: |
+        set -euo pipefail
+        endpoints="{% for host in groups['etcd'] %}https://{{ hostvars[host].ansible_host }}:2379{% if not loop.last %},{% endif %}{% endfor %}"
+        ETCDCTL_API=3 etcdctl \
+          --cacert=/etc/etcd/ssl/ca.pem \
+          --cert=/etc/etcd/ssl/etcd.pem \
+          --key=/etc/etcd/ssl/etcd-key.pem \
+          --endpoints="${endpoints}" \
+          endpoint health --cluster
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+- name: single-to-ha 扩容 control plane - 安装/更新 Master 控制面三核心服务
+  hosts: kube_master
+  gather_facts: yes
+  become: yes
+  serial: 1
+  vars:
+    required_cache_files:
+      - "{{ download_arch_dir }}/kubernetes-server-linux-{{ target_arch }}.tar.gz"
+      - "{{ download_arch_dir }}/kubectl"
+  pre_tasks:
+    - name: 校验本地二进制缓存已准备
+      include_role:
+        name: preflight_cache
+
+    - name: 输出当前处理 master
+      debug:
+        msg: "expanding/updating control plane on {{ inventory_hostname }} ({{ ansible_host }})"
+
+  roles:
+    - kube_master
+
+  post_tasks:
+    - name: 检查本机 kube-apiserver readyz
+      uri:
+        url: "https://127.0.0.1:{{ kube_apiserver_secure_port }}/readyz"
+        method: GET
+        validate_certs: no
+        status_code: 200
+      register: expanded_apiserver_readyz
+      retries: 30
+      delay: 5
+      until: expanded_apiserver_readyz.status == 200
+
+- name: single-to-ha 扩容 control plane - 最终验证
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: 检查 kubectl readyz
+      command: >
+        {{ download_arch_dir }}/kubectl get --raw=/readyz
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+      register: control_plane_readyz
+      changed_when: false
+
+    - name: 检查 node 列表
+      command: >
+        {{ download_arch_dir }}/kubectl get nodes -o wide
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+      register: control_plane_nodes
+      changed_when: false
+
+    - name: 输出 control plane 验证结果
+      debug:
+        msg:
+          - "readyz: {{ control_plane_readyz.stdout }}"
+          - "nodes:"
+          - "{{ control_plane_nodes.stdout_lines }}"
