@@ -1,0 +1,100 @@
+---
+# 0056-enable-ha-lb.yml
+# single-to-ha: 在 3 个 master 上启用 Nginx + Keepalived，提供 HA apiserver VIP 入口。
+# 前置条件：0055-expand-control-plane.yml 已完成，3 个 kube-apiserver 均 ready。
+
+- name: single-to-ha 启用 HA LB - 前置检查
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: 确认已显式允许启用 HA LB
+      assert:
+        that:
+          - confirm_single_to_ha_migration | default(false) | bool
+          - confirm_enable_ha_lb | default(false) | bool
+        fail_msg: "启用 HA LB 必须同时传入 -e confirm_single_to_ha_migration=true -e confirm_enable_ha_lb=true。"
+        success_msg: "已确认启用 HA LB。"
+
+    - name: 检查迁移模式与 HA LB 变量
+      assert:
+        that:
+          - migration_mode | default('') == 'single-to-ha'
+          - cluster_mode | default('') == 'ha'
+          - node_type | default('') == 'machine'
+          - groups['kube_master'] | length == 3
+          - LB_APISERVER_VIP is defined
+          - LB_APISERVER_PORT is defined
+          - LB_INTERFACE is defined
+          - enable_keepalived | bool
+        fail_msg: "启用 HA LB 要求 single-to-ha/machine/ha 模式，kube_master=3，并定义 LB_APISERVER_VIP/LB_APISERVER_PORT/LB_INTERFACE 且 enable_keepalived=true。"
+        success_msg: "HA LB 变量检查通过。"
+
+    - name: 检查 MASTER_CERT_HOSTS 包含 VIP
+      assert:
+        that:
+          - LB_APISERVER_VIP | string in MASTER_CERT_HOSTS | map('string') | list
+        fail_msg: "MASTER_CERT_HOSTS 必须包含 LB_APISERVER_VIP={{ LB_APISERVER_VIP }}，否则通过 VIP 访问 apiserver 会出现 TLS SAN 错误。"
+        success_msg: "MASTER_CERT_HOSTS 已包含 VIP。"
+
+- name: single-to-ha 启用 HA LB - 检查 3 个 apiserver ready
+  hosts: kube_master
+  gather_facts: no
+  tasks:
+    - name: 检查本机 apiserver readyz
+      uri:
+        url: "https://127.0.0.1:{{ kube_apiserver_secure_port }}/readyz"
+        method: GET
+        validate_certs: no
+        status_code: 200
+      register: master_apiserver_readyz_before_lb
+      retries: 30
+      delay: 5
+      until: master_apiserver_readyz_before_lb.status == 200
+
+- name: single-to-ha 启用 HA LB - 安装并启动 Nginx + Keepalived
+  hosts: kube_master
+  gather_facts: yes
+  become: yes
+  serial: 1
+  roles:
+    - lb
+
+  post_tasks:
+    - name: 检查本机 LB 端口
+      wait_for:
+        host: 127.0.0.1
+        port: "{{ LB_APISERVER_PORT }}"
+        timeout: 15
+
+    - name: 检查本机 Nginx 代理 readyz
+      uri:
+        url: "https://127.0.0.1:{{ LB_APISERVER_PORT }}/readyz"
+        method: GET
+        validate_certs: no
+        status_code: 200
+      register: local_lb_readyz
+      retries: 12
+      delay: 5
+      until: local_lb_readyz.status == 200
+
+- name: single-to-ha 启用 HA LB - VIP 验证
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: 等待 VIP apiserver 入口可用
+      uri:
+        url: "https://{{ LB_APISERVER_VIP }}:{{ LB_APISERVER_PORT }}/readyz"
+        method: GET
+        validate_certs: no
+        status_code: 200
+      register: vip_apiserver_readyz
+      retries: 30
+      delay: 5
+      until: vip_apiserver_readyz.status == 200
+
+    - name: 输出 VIP 验证结果
+      debug:
+        msg:
+          - "HA LB VIP readyz passed."
+          - "VIP endpoint: https://{{ LB_APISERVER_VIP }}:{{ LB_APISERVER_PORT }}"
+          - "下一步可以执行 0057-switch-kubeconfigs-to-vip.yml，将 kubeconfig server endpoint 切换到 VIP。"
