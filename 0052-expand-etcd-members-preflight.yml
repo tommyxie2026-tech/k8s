@@ -1,0 +1,209 @@
+---
+# 0052-expand-etcd-members-preflight.yml
+# single-to-ha: etcd 扩容前置检查。
+# 该 playbook 只做检查，不执行 member add，不修改 etcd 数据。
+
+- name: single-to-ha etcd 扩容前置检查 - 控制机检查
+  hosts: localhost
+  gather_facts: yes
+  tasks:
+    - name: 确认已显式允许 single-to-ha 迁移
+      assert:
+        that:
+          - confirm_single_to_ha_migration | default(false) | bool
+        fail_msg: "执行 etcd 扩容前置检查需要显式传入 -e confirm_single_to_ha_migration=true。"
+        success_msg: "已确认执行 etcd 扩容前置检查。"
+
+    - name: 检查迁移模式与目标拓扑
+      assert:
+        that:
+          - migration_mode | default('') == 'single-to-ha'
+          - cluster_mode | default('') == 'ha'
+          - node_type | default('') == 'machine'
+          - original_single_node is defined
+          - original_single_node in groups['etcd']
+          - groups['etcd'] | length == 3
+          - groups['kube_master'] | length == 3
+          - (groups['etcd'] | difference(groups['kube_master']) | length) == 0
+        fail_msg: "etcd 扩容要求 single-to-ha 模式，且目标 etcd=3、kube_master=3、etcd 节点全部属于 kube_master。"
+        success_msg: "迁移模式与目标拓扑检查通过。"
+
+    - name: 计算新 etcd member 列表
+      set_fact:
+        new_etcd_members: "{{ groups['etcd'] | difference([original_single_node]) }}"
+
+    - name: 确认新 etcd member 数量为 2
+      assert:
+        that:
+          - new_etcd_members | length == 2
+        fail_msg: "single-to-ha etcd 扩容要求除 original_single_node 外恰好还有 2 个新 etcd member。"
+        success_msg: "新 etcd member 数量检查通过：{{ new_etcd_members }}。"
+
+    - name: 检查最近 single-to-ha 备份目录是否存在
+      find:
+        paths: "{{ playbook_dir }}/backup/single-to-ha"
+        file_type: directory
+        recurse: no
+      register: single_to_ha_backup_dirs
+      failed_when: false
+
+    - name: 确认至少存在一个 single-to-ha 备份目录
+      assert:
+        that:
+          - single_to_ha_backup_dirs.matched | default(0) | int > 0
+        fail_msg: "未找到 backup/single-to-ha/<timestamp> 备份目录。请先执行 0051-single-to-ha-backup.yml。"
+        success_msg: "已找到 single-to-ha 备份目录。"
+
+    - name: 选择最新备份目录
+      set_fact:
+        latest_single_to_ha_backup_dir: "{{ (single_to_ha_backup_dirs.files | sort(attribute='mtime') | last).path }}"
+
+    - name: 检查最新备份关键文件
+      stat:
+        path: "{{ latest_single_to_ha_backup_dir }}/{{ item }}"
+      loop:
+        - metadata.yml
+        - etcd/etcd-snapshot.db
+        - etcd/etcd-snapshot-status.txt
+        - etcd/etcd-member-list.txt
+        - cluster-state/nodes-wide.txt
+      register: latest_backup_required_files
+
+    - name: 计算缺失的备份关键文件
+      set_fact:
+        missing_latest_backup_files: >-
+          {{ latest_backup_required_files.results
+             | selectattr('stat.exists', 'equalto', false)
+             | map(attribute='item')
+             | list }}
+
+    - name: 确认最新备份关键文件完整
+      assert:
+        that:
+          - missing_latest_backup_files | length == 0
+        fail_msg: "最新备份目录 {{ latest_single_to_ha_backup_dir }} 缺少关键文件：{{ missing_latest_backup_files }}。请重新执行 0051-single-to-ha-backup.yml。"
+        success_msg: "最新备份关键文件完整：{{ latest_single_to_ha_backup_dir }}。"
+
+    - name: 输出最新备份目录
+      debug:
+        msg: "latest single-to-ha backup dir: {{ latest_single_to_ha_backup_dir }}"
+
+- name: single-to-ha etcd 扩容前置检查 - 当前 etcd 状态
+  hosts: "{{ original_single_node }}"
+  gather_facts: no
+  tasks:
+    - name: 检查当前 etcd member list
+      shell: |
+        set -euo pipefail
+        ETCDCTL_API=3 etcdctl \
+          --cacert=/etc/etcd/ssl/ca.pem \
+          --cert=/etc/etcd/ssl/etcd.pem \
+          --key=/etc/etcd/ssl/etcd-key.pem \
+          --endpoints=https://127.0.0.1:2379 \
+          member list
+      args:
+        executable: /bin/bash
+      register: current_etcd_member_list
+      changed_when: false
+
+    - name: 输出当前 etcd member list
+      debug:
+        var: current_etcd_member_list.stdout_lines
+
+    - name: 确认当前 etcd 仍为单 member
+      assert:
+        that:
+          - current_etcd_member_list.stdout_lines | length == 1
+        fail_msg: "当前 etcd 已不是单 member 状态，禁止按 single-to-ha 扩容流程继续。"
+        success_msg: "当前 etcd 仍为单 member，符合扩容前置条件。"
+
+    - name: 检查当前 etcd endpoint health
+      shell: |
+        set -euo pipefail
+        ETCDCTL_API=3 etcdctl \
+          --cacert=/etc/etcd/ssl/ca.pem \
+          --cert=/etc/etcd/ssl/etcd.pem \
+          --key=/etc/etcd/ssl/etcd-key.pem \
+          --endpoints=https://127.0.0.1:2379 \
+          endpoint health
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+- name: single-to-ha etcd 扩容前置检查 - 新 etcd 节点检查
+  hosts: etcd
+  gather_facts: yes
+  tasks:
+    - name: 跳过原单节点提示
+      debug:
+        msg: "{{ inventory_hostname }} is original single etcd member, skip new member clean checks."
+      when: inventory_hostname == original_single_node
+
+    - name: 检查新 etcd 节点是否已有 etcd 数据目录
+      stat:
+        path: /var/lib/etcd
+      register: new_etcd_data_dir
+      when: inventory_hostname != original_single_node
+
+    - name: 阻断已有 etcd 数据目录的新 member
+      assert:
+        that:
+          - not new_etcd_data_dir.stat.exists
+        fail_msg: "新 etcd 节点 {{ inventory_hostname }} 已存在 /var/lib/etcd。为避免误加入旧数据，禁止继续。请人工确认并清理。"
+        success_msg: "新 etcd 节点 {{ inventory_hostname }} 未发现 /var/lib/etcd。"
+      when: inventory_hostname != original_single_node
+
+    - name: 检查新 etcd 节点 2379/2380 端口未占用
+      wait_for:
+        host: "{{ ansible_host | default(inventory_hostname) }}"
+        port: "{{ item }}"
+        state: stopped
+        timeout: 2
+      loop:
+        - 2379
+        - 2380
+      register: new_etcd_port_checks
+      failed_when: false
+      changed_when: false
+      when: inventory_hostname != original_single_node
+
+    - name: 阻断新 etcd 节点端口占用
+      assert:
+        that:
+          - new_etcd_port_checks is not failed
+        fail_msg: "新 etcd 节点 {{ inventory_hostname }} 的 2379/2380 端口存在占用，请清理后再继续。"
+        success_msg: "新 etcd 节点 {{ inventory_hostname }} 2379/2380 端口未占用。"
+      when: inventory_hostname != original_single_node
+
+    - name: 检查新 etcd 节点 systemd
+      stat:
+        path: /run/systemd/system
+      register: new_etcd_systemd
+      when: inventory_hostname != original_single_node
+
+    - name: 确认新 etcd 节点具备 systemd
+      assert:
+        that:
+          - new_etcd_systemd.stat.exists
+        fail_msg: "新 etcd 节点 {{ inventory_hostname }} 未检测到 systemd 运行环境。"
+        success_msg: "新 etcd 节点 {{ inventory_hostname }} systemd 检查通过。"
+      when: inventory_hostname != original_single_node
+
+- name: single-to-ha etcd 扩容前置检查 - 证书 SAN 检查
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: 检查 MASTER_CERT_HOSTS 包含所有 etcd 节点 IP
+      assert:
+        that:
+          - hostvars[item].ansible_host | string in MASTER_CERT_HOSTS | map('string') | list
+        fail_msg: "MASTER_CERT_HOSTS 必须包含 etcd/master {{ item }} 的 IP：{{ hostvars[item].ansible_host }}。"
+        success_msg: "MASTER_CERT_HOSTS 已包含 etcd/master {{ item }} IP。"
+      loop: "{{ groups['etcd'] }}"
+
+    - name: 扩容前置检查完成提示
+      debug:
+        msg:
+          - "etcd member expand preflight passed."
+          - "latest backup dir: {{ latest_single_to_ha_backup_dir }}"
+          - "后续可以进入 0053-expand-etcd-members.yml，执行真正的 member add 与新 member 启动。"
