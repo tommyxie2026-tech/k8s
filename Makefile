@@ -1,9 +1,10 @@
-.PHONY: syntax-check syntax-check-single syntax-check-single-to-ha preflight-container deploy-container deploy-container-offline deploy-single deploy-single-offline migrate-single-to-ha-preflight migrate-single-to-ha-backup migrate-single-to-ha-etcd-preflight migrate-single-to-ha-expand-etcd migrate-single-to-ha cleanup-container smoke-test
+.PHONY: syntax-check syntax-check-single syntax-check-single-to-ha preflight-container deploy-container deploy-container-offline deploy-single deploy-single-offline migrate-single-to-ha-preflight migrate-single-to-ha-backup migrate-single-to-ha-etcd-preflight migrate-single-to-ha-expand-etcd migrate-single-to-ha-renew-apiserver-cert migrate-single-to-ha cleanup-container smoke-test
 
 INVENTORY ?= inventories/hosts-container.yml
 KUBECONFIG_PATH ?= $(HOME)/.kube/config
 CONFIRM_SINGLE_TO_HA ?= false
 CONFIRM_EXPAND_ETCD ?= false
+CONFIRM_RENEW_APISERVER_CERT ?= false
 
 syntax-check:
 	INVENTORY=$(INVENTORY) bash scripts/syntax-check.sh
@@ -79,6 +80,9 @@ migrate-single-to-ha-etcd-preflight:
 
 migrate-single-to-ha-expand-etcd:
 	ansible-playbook -i inventories/hosts-ha-from-single.yml 0053-expand-etcd-members.yml -e confirm_single_to_ha_migration=$(CONFIRM_SINGLE_TO_HA) -e confirm_expand_etcd_members=$(CONFIRM_EXPAND_ETCD)
+
+migrate-single-to-ha-renew-apiserver-cert:
+	ansible-playbook -i inventories/hosts-ha-from-single.yml 0054-renew-apiserver-cert-for-ha.yml -e confirm_single_to_ha_migration=$(CONFIRM_SINGLE_TO_HA) -e confirm_renew_apiserver_cert=$(CONFIRM_RENEW_APISERVER_CERT)
 
 migrate-single-to-ha:
 	ansible-playbook -i inventories/hosts-ha-from-single.yml 0050-single-to-ha.yml -e confirm_single_to_ha_migration=$(CONFIRM_SINGLE_TO_HA)
