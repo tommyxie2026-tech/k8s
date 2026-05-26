@@ -4,15 +4,15 @@ on:
   workflow_dispatch:
     inputs:
       arch:
-        description: Target architecture, e.g. amd64 or arm64
+        description: "Target architecture, e.g. amd64 or arm64"
         required: true
         default: amd64
       target_branch:
-        description: Branch to store binary cache
+        description: "Branch to store binary cache"
         required: true
         default: binary-cache/amd64
       commit_changes:
-        description: Commit downloaded files back to repository
+        description: "Commit downloaded files back to repository"
         required: true
         default: 'true'
 
@@ -24,22 +24,38 @@ jobs:
     name: Download and commit default binaries
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    env:
+      BINARY_CACHE_TOKEN: ${{ secrets.BINARY_CACHE_TOKEN }}
     steps:
       - name: Checkout source branch
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           lfs: true
+          token: ${{ secrets.BINARY_CACHE_TOKEN || github.token }}
+
+      - name: Validate binary cache push token
+        if: ${{ inputs.commit_changes == 'true' }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${BINARY_CACHE_TOKEN}" ]]; then
+            echo "::error::commit_changes=true requires repository secret BINARY_CACHE_TOKEN. This token must be a PAT with repository Contents write access and Git LFS upload permission. GitHub's default github-actions[bot] token may fail to upload new LFS objects."
+            exit 1
+          fi
 
       - name: Configure Git LFS
         run: |
-          git lfs install
+          git lfs install --local
           git lfs track "files/**/*"
 
-      - name: Configure Git identity
+      - name: Configure Git identity and authenticated remote
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [[ -n "${BINARY_CACHE_TOKEN}" ]]; then
+            git remote set-url origin "https://x-access-token:${BINARY_CACHE_TOKEN}@github.com/${{ github.repository }}.git"
+          fi
 
       - name: Download default binaries from source branch
         env:
@@ -86,8 +102,9 @@ jobs:
             echo "No binary cache changes to commit."
           else
             git commit -m "cache: update default ${{ inputs.arch }} binaries"
+            git lfs push origin HEAD
             if ! git push origin "HEAD:${TARGET_BRANCH}"; then
-              echo "::error::Failed to push ${TARGET_BRANCH}. Check repository Actions write permission and branch protection rules, or run again with a new target_branch such as binary-cache/${{ inputs.arch }}-${{ github.run_number }}."
+              echo "::error::Failed to push ${TARGET_BRANCH}. Check BINARY_CACHE_TOKEN permissions, repository Git LFS settings, and branch protection rules, or run again with a new target_branch such as binary-cache/${{ inputs.arch }}-${{ github.run_number }}."
               exit 1
             fi
           fi
