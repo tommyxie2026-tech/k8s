@@ -48,6 +48,7 @@ case "${MODE}" in
   single-to-ha)
     PLAYBOOKS=(
       0050-single-to-ha-preflight.yml
+      0051-single-to-ha-backup.yml
       0050-single-to-ha.yml
     )
     ;;
