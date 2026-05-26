@@ -1,4 +1,4 @@
-.PHONY: syntax-check syntax-check-single syntax-check-single-to-ha preflight-container deploy-container deploy-container-offline deploy-single deploy-single-offline migrate-single-to-ha-preflight migrate-single-to-ha-backup migrate-single-to-ha cleanup-container smoke-test
+.PHONY: syntax-check syntax-check-single syntax-check-single-to-ha preflight-container deploy-container deploy-container-offline deploy-single deploy-single-offline migrate-single-to-ha-preflight migrate-single-to-ha-backup migrate-single-to-ha-etcd-preflight migrate-single-to-ha cleanup-container smoke-test
 
 INVENTORY ?= inventories/hosts-container.yml
 KUBECONFIG_PATH ?= $(HOME)/.kube/config
@@ -72,6 +72,9 @@ migrate-single-to-ha-preflight:
 
 migrate-single-to-ha-backup:
 	ansible-playbook -i inventories/hosts-ha-from-single.yml 0051-single-to-ha-backup.yml -e confirm_single_to_ha_migration=$(CONFIRM_SINGLE_TO_HA)
+
+migrate-single-to-ha-etcd-preflight:
+	ansible-playbook -i inventories/hosts-ha-from-single.yml 0052-expand-etcd-members-preflight.yml -e confirm_single_to_ha_migration=$(CONFIRM_SINGLE_TO_HA)
 
 migrate-single-to-ha:
 	ansible-playbook -i inventories/hosts-ha-from-single.yml 0050-single-to-ha.yml -e confirm_single_to_ha_migration=$(CONFIRM_SINGLE_TO_HA)
