@@ -209,7 +209,7 @@ jobs:
             echo "No built binary cache changes to commit."
           else
             git commit -m "cache: build ${{ inputs.stage }} ${{ inputs.arch }} binaries from source"
-            git lfs push origin "HEAD:${TARGET_BRANCH}"
+            git lfs push origin HEAD
             if ! git push origin "HEAD:${TARGET_BRANCH}"; then
               echo "::error::Failed to push ${TARGET_BRANCH}. Check BINARY_CACHE_TOKEN permissions, repository Git LFS settings, and branch protection rules, or run again with a new target_branch such as binary-cache/${{ inputs.arch }}-build-${{ github.run_number }}."
               exit 1
