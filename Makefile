@@ -1,4 +1,4 @@
-.PHONY: syntax-check syntax-check-single syntax-check-single-to-ha preflight-container deploy-container deploy-container-offline deploy-single deploy-single-offline migrate-single-to-ha-preflight migrate-single-to-ha-backup migrate-single-to-ha-etcd-preflight migrate-single-to-ha-expand-etcd migrate-single-to-ha-renew-apiserver-cert migrate-single-to-ha-expand-control-plane migrate-single-to-ha-enable-ha-lb migrate-single-to-ha-switch-kubeconfigs-to-vip migrate-single-to-ha cleanup-container smoke-test
+.PHONY: syntax-check syntax-check-single syntax-check-single-to-ha storage-preflight preflight-container deploy-container deploy-container-offline deploy-single deploy-single-offline migrate-single-to-ha-preflight migrate-single-to-ha-backup migrate-single-to-ha-etcd-preflight migrate-single-to-ha-expand-etcd migrate-single-to-ha-renew-apiserver-cert migrate-single-to-ha-expand-control-plane migrate-single-to-ha-enable-ha-lb migrate-single-to-ha-switch-kubeconfigs-to-vip migrate-single-to-ha cleanup-container smoke-test
 
 INVENTORY ?= inventories/hosts-container.yml
 KUBECONFIG_PATH ?= $(HOME)/.kube/config
@@ -17,6 +17,9 @@ syntax-check-single:
 
 syntax-check-single-to-ha:
 	INVENTORY=inventories/hosts-ha-from-single.yml MODE=single-to-ha bash scripts/syntax-check.sh
+
+storage-preflight:
+	ansible-playbook -i $(INVENTORY) 0058-storage-preflight.yml
 
 preflight-container:
 	ansible-playbook -i inventories/hosts-container.yml 0000-container-infra.yml
