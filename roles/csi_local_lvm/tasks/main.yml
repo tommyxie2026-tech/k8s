@@ -1,0 +1,82 @@
+---
+# Initial local-lvm CSI installation role.
+# Current phase focuses on node prerequisites and StorageClass baseline.
+# CSI controller/node deployment manifests will be added incrementally.
+
+- name: local-lvm preflight assertions
+  assert:
+    that:
+      - storage_backend == 'local-lvm'
+    fail_msg: "csi_local_lvm role 仅允许 storage_backend=local-lvm。"
+
+- name: 输出 local-lvm 配置
+  debug:
+    msg:
+      - "local_lvm_vg_name={{ local_lvm_vg_name }}"
+      - "local_lvm_device={{ local_lvm_device }}"
+      - "local_lvm_storage_class={{ local_lvm_storage_class }}"
+      - "当前阶段不会自动格式化磁盘。"
+
+- name: 安装 lvm2
+  package:
+    name: lvm2
+    state: present
+  become: yes
+
+- name: 创建 topolvm 配置目录
+  file:
+    path: "{{ local_lvm_lvmd_config_dir }}"
+    state: directory
+    mode: '0755'
+  become: yes
+
+- name: 渲染 lvmd 配置
+  template:
+    src: lvmd.yaml.j2
+    dest: "{{ local_lvm_lvmd_config_file }}"
+    mode: '0644'
+  become: yes
+
+- name: 检查 volume group 是否存在
+  shell: vgs {{ local_lvm_vg_name }}
+  register: vg_check
+  changed_when: false
+  failed_when: false
+  become: yes
+
+- name: 输出 VG 检查结果
+  debug:
+    msg:
+      - "vg_exists_rc={{ vg_check.rc }}"
+      - "local_lvm_create_vg={{ local_lvm_create_vg }}"
+
+- name: 创建 local-lvm namespace
+  command: >
+    {{ download_arch_dir }}/kubectl create namespace {{ local_lvm_namespace }}
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: local_lvm_namespace_create
+  changed_when: "'created' in local_lvm_namespace_create.stdout"
+  failed_when: false
+
+- name: 创建 local-lvm StorageClass
+  shell: |
+    cat <<'EOF' | {{ download_arch_dir }}/kubectl apply -f - \
+      --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+    apiVersion: storage.k8s.io/v1
+    kind: StorageClass
+    metadata:
+      name: {{ local_lvm_storage_class }}
+    provisioner: topolvm.io
+    allowVolumeExpansion: true
+    volumeBindingMode: WaitForFirstConsumer
+    parameters:
+      topolvm.io/device-class: {{ local_lvm_storage_class }}
+    EOF
+  args:
+    executable: /bin/bash
+  register: local_lvm_sc_apply
+  changed_when: "'created' in local_lvm_sc_apply.stdout or 'configured' in local_lvm_sc_apply.stdout"
+
+- name: 输出 StorageClass apply 结果
+  debug:
+    var: local_lvm_sc_apply.stdout_lines
