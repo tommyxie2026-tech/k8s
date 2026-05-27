@@ -1,0 +1,103 @@
+---
+# Enterprise storage preflight / risk-report role.
+# 当前阶段：只读检查，不修改任何 PVC/PV/StorageClass。
+
+- name: 检查 storage backend 配置
+  assert:
+    that:
+      - storage_backend is defined
+      - storage_backend in ['local-lvm', 'nfs', 'iscsi-san', 'rook-ceph']
+    fail_msg: "storage_backend 必须是 local-lvm/nfs/iscsi-san/rook-ceph 之一。"
+    success_msg: "storage backend 配置合法。"
+
+- name: 输出 storage backend
+  debug:
+    msg:
+      - "storage_backend={{ storage_backend }}"
+      - "storage_default_class={{ storage_default_class }}"
+      - "当前阶段仅执行 preflight/risk-report。"
+
+- name: 获取 StorageClass
+  command: >
+    {{ download_arch_dir }}/kubectl get sc
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: storageclass_output
+  changed_when: false
+  failed_when: false
+
+- name: 获取 PVC
+  command: >
+    {{ download_arch_dir }}/kubectl get pvc -A
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: pvc_output
+  changed_when: false
+  failed_when: false
+
+- name: 获取 PV
+  command: >
+    {{ download_arch_dir }}/kubectl get pv
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: pv_output
+  changed_when: false
+  failed_when: false
+
+- name: 获取 StatefulSet
+  command: >
+    {{ download_arch_dir }}/kubectl get sts -A
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: sts_output
+  changed_when: false
+  failed_when: false
+
+- name: 获取 VolumeAttachment
+  command: >
+    {{ download_arch_dir }}/kubectl get volumeattachment
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: volumeattachment_output
+  changed_when: false
+  failed_when: false
+
+- name: 输出存储风险报告
+  debug:
+    msg:
+      - "===== StorageClass ====="
+      - "{{ storageclass_output.stdout_lines | default([]) }}"
+      - "===== PVC ====="
+      - "{{ pvc_output.stdout_lines | default([]) }}"
+      - "===== PV ====="
+      - "{{ pv_output.stdout_lines | default([]) }}"
+      - "===== StatefulSet ====="
+      - "{{ sts_output.stdout_lines | default([]) }}"
+      - "===== VolumeAttachment ====="
+      - "{{ volumeattachment_output.stdout_lines | default([]) }}"
+
+- name: iSCSI preflight
+  when: storage_backend == 'iscsi-san'
+  block:
+    - name: 检查 iscsiadm
+      shell: which iscsiadm
+      register: iscsiadm_check
+      changed_when: false
+      failed_when: false
+
+    - name: 检查 multipath
+      shell: which multipath
+      register: multipath_check
+      changed_when: false
+      failed_when: false
+
+    - name: 输出 iSCSI 检查结果
+      debug:
+        msg:
+          - "iscsiadm_rc={{ iscsiadm_check.rc }}"
+          - "multipath_rc={{ multipath_check.rc }}"
+          - "iscsi_target_portals={{ iscsi_target_portals | default([]) }}"
+
+- name: Ceph preflight
+  when: storage_backend == 'rook-ceph'
+  block:
+    - name: 输出 Ceph OSD 配置
+      debug:
+        msg:
+          - "ceph_replica_size={{ ceph_replica_size }}"
+          - "ceph_osd_devices={{ ceph_osd_devices | default([]) }}"
