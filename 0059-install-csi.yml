@@ -1,0 +1,17 @@
+---
+# 0059-install-csi.yml
+# Enterprise CSI installation entry.
+# Current phase: local-lvm baseline only.
+
+- name: storage install - preflight
+  hosts: localhost
+  gather_facts: no
+  roles:
+    - storage_preflight
+
+- name: install local-lvm CSI baseline
+  hosts: kube_node
+  gather_facts: no
+  roles:
+    - role: csi_local_lvm
+      when: storage_backend == 'local-lvm'
