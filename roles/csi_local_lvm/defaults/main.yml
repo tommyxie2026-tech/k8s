@@ -1,0 +1,16 @@
+---
+# Local LVM CSI defaults.
+# Initial implementation uses TopoLVM-style variables and manifest templates.
+
+local_lvm_namespace: topolvm-system
+local_lvm_storage_class: local-lvm
+local_lvm_vg_name: k8s-vg
+local_lvm_device: ""
+local_lvm_lvmd_config_dir: /etc/topolvm
+local_lvm_lvmd_config_file: /etc/topolvm/lvmd.yaml
+local_lvm_create_vg: false
+local_lvm_force_create_vg: false
+local_lvm_topolvm_version: v0.35.0
+local_lvm_controller_replicas: 1
+local_lvm_overprovision_ratio: 10
+local_lvm_default: false
