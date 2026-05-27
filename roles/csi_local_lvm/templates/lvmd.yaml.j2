@@ -1,0 +1,10 @@
+socket-name: /run/topolvm/lvmd.sock
+device-classes:
+  - name: {{ local_lvm_storage_class }}
+    volume-group: {{ local_lvm_vg_name }}
+    default: {{ local_lvm_default | ternary('true', 'false') }}
+    spare-gb: 10
+    type: thin
+    thin-pool:
+      name: {{ local_lvm_storage_class }}-pool
+      overprovision-ratio: {{ local_lvm_overprovision_ratio }}
