@@ -1,0 +1,45 @@
+---
+# Enterprise CSI / storage defaults.
+# Override these values in inventory-specific group_vars when enabling production storage.
+
+storage_enabled: false
+
+# Supported values: local-lvm, nfs, iscsi-san, rook-ceph
+storage_backend: local-lvm
+storage_default_class: local-lvm
+
+storage_snapshot_enabled: true
+storage_expansion_enabled: true
+storage_retain_class_enabled: true
+storage_enable_topology: true
+storage_reclaim_policy: Delete
+
+# local-lvm defaults
+local_lvm_vg_name: k8s-vg
+local_lvm_device: ""
+local_lvm_storage_class: local-lvm
+
+# NFS defaults
+nfs_server: ""
+nfs_path: ""
+nfs_storage_class: nfs-csi
+
+# iSCSI SAN defaults
+iscsi_storage_class: iscsi-san
+iscsi_target_portals: []
+iscsi_iqn: ""
+iscsi_chap_enabled: true
+iscsi_chap_username: ""
+iscsi_chap_password: ""
+iscsi_multipath_enabled: true
+iscsi_fs_type: xfs
+
+# Rook Ceph defaults
+ceph_storage_class: ceph-rbd
+ceph_retain_storage_class: ceph-rbd-retain
+cephfs_storage_class: cephfs
+ceph_replica_size: 3
+ceph_enable_rbd: true
+ceph_enable_cephfs: true
+ceph_auto_discover_devices: false
+ceph_osd_devices: []
