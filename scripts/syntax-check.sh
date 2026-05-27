@@ -26,6 +26,7 @@ COMMON_PLAYBOOKS=(
   0040-etcd-snapshot.yml
   0400-cert-expiry-check.yml
   0401-renew-component-certs.yml
+  0058-storage-preflight.yml
   0090-stop-services.yml
   0091-reset-node-runtime.yml
 )
@@ -55,6 +56,7 @@ case "${MODE}" in
       0055-expand-control-plane.yml
       0056-enable-ha-lb.yml
       0057-switch-kubeconfigs-to-vip.yml
+      0058-storage-preflight.yml
       0050-single-to-ha.yml
     )
     ;;
