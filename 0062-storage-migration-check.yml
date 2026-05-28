@@ -1,0 +1,158 @@
+---
+# 0062-storage-migration-check.yml
+# Enterprise storage migration risk check.
+# Read-only by default: does not modify PVC/PV/StorageClass/StatefulSet.
+
+- name: storage migration check - collect cluster storage state
+  hosts: localhost
+  gather_facts: yes
+  vars:
+    storage_migration_report_dir: "{{ playbook_dir }}/backup/storage-migration/{{ ansible_date_time.iso8601_basic_short }}"
+  tasks:
+    - name: Validate storage backend
+      assert:
+        that:
+          - storage_backend is defined
+          - storage_backend in ['local-lvm', 'nfs', 'iscsi-san', 'rook-ceph']
+        fail_msg: "storage_backend must be one of local-lvm/nfs/iscsi-san/rook-ceph"
+
+    - name: Create migration report directory
+      file:
+        path: "{{ storage_migration_report_dir }}"
+        state: directory
+        mode: '0700'
+
+    - name: Collect StorageClass yaml
+      command: >
+        {{ download_arch_dir }}/kubectl get sc -o yaml
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+      register: migration_sc_yaml
+      changed_when: false
+      failed_when: false
+
+    - name: Collect PVC yaml
+      command: >
+        {{ download_arch_dir }}/kubectl get pvc -A -o yaml
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+      register: migration_pvc_yaml
+      changed_when: false
+      failed_when: false
+
+    - name: Collect PV yaml
+      command: >
+        {{ download_arch_dir }}/kubectl get pv -o yaml
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+      register: migration_pv_yaml
+      changed_when: false
+      failed_when: false
+
+    - name: Collect StatefulSet yaml
+      command: >
+        {{ download_arch_dir }}/kubectl get sts -A -o yaml
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+      register: migration_sts_yaml
+      changed_when: false
+      failed_when: false
+
+    - name: Collect VolumeAttachment yaml
+      command: >
+        {{ download_arch_dir }}/kubectl get volumeattachment -o yaml
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+      register: migration_va_yaml
+      changed_when: false
+      failed_when: false
+
+    - name: Collect compact resource tables
+      shell: |
+        set -euo pipefail
+        kubectl_bin="{{ download_arch_dir }}/kubectl"
+        kubeconfig="{{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig"
+        out="{{ storage_migration_report_dir }}"
+        "${kubectl_bin}" get sc --kubeconfig="${kubeconfig}" > "${out}/storageclasses.txt" || true
+        "${kubectl_bin}" get pvc -A --kubeconfig="${kubeconfig}" > "${out}/pvcs.txt" || true
+        "${kubectl_bin}" get pv --kubeconfig="${kubeconfig}" > "${out}/pvs.txt" || true
+        "${kubectl_bin}" get sts -A --kubeconfig="${kubeconfig}" > "${out}/statefulsets.txt" || true
+        "${kubectl_bin}" get volumeattachment --kubeconfig="${kubeconfig}" > "${out}/volumeattachments.txt" || true
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Write raw yaml reports
+      copy:
+        dest: "{{ storage_migration_report_dir }}/{{ item.name }}"
+        mode: '0600'
+        content: "{{ item.content }}"
+      loop:
+        - name: storageclasses.yaml
+          content: "{{ migration_sc_yaml.stdout | default('') }}"
+        - name: pvcs.yaml
+          content: "{{ migration_pvc_yaml.stdout | default('') }}"
+        - name: pvs.yaml
+          content: "{{ migration_pv_yaml.stdout | default('') }}"
+        - name: statefulsets.yaml
+          content: "{{ migration_sts_yaml.stdout | default('') }}"
+        - name: volumeattachments.yaml
+          content: "{{ migration_va_yaml.stdout | default('') }}"
+
+    - name: Create migration risk summary
+      copy:
+        dest: "{{ storage_migration_report_dir }}/RISK-SUMMARY.md"
+        mode: '0600'
+        content: |
+          # Storage Migration Risk Summary
+
+          Generated at: {{ ansible_date_time.iso8601 }}
+
+          ## Target backend
+
+          ```text
+          storage_backend={{ storage_backend }}
+          storage_default_class={{ storage_default_class | default('') }}
+          storage_reclaim_policy={{ storage_reclaim_policy | default('') }}
+          ```
+
+          ## Required manual review
+
+          Before migrating production PVCs or StatefulSets, review:
+
+          ```text
+          storageclasses.txt
+          pvcs.txt
+          pvs.txt
+          statefulsets.txt
+          volumeattachments.txt
+          ```
+
+          ## High-risk patterns
+
+          Check for:
+
+          ```text
+          local PV / node-bound PV
+          StatefulSet with PVC templates
+          PV reclaimPolicy=Delete for critical data
+          Released PV
+          Pending PVC
+          stale VolumeAttachment
+          default StorageClass changes
+          ```
+
+          ## Safe migration pattern
+
+          ```text
+          create new StorageClass
+          create new PVC
+          backup/snapshot data
+          sync data
+          switch workload
+          verify application
+          retain old PV/PVC until rollback window ends
+          ```
+
+    - name: Print migration check summary
+      debug:
+        msg:
+          - "Storage migration check completed."
+          - "Report dir: {{ storage_migration_report_dir }}"
+          - "This playbook is read-only and did not modify storage resources."
+          - "Review RISK-SUMMARY.md before any PVC/PV/StatefulSet migration."
