@@ -1,0 +1,83 @@
+# inventories/hosts-ha.yml
+# VM / 裸金属全新 HA 集群 inventory 模板。
+# 使用前必须按真实环境修改 IP、VIP、网卡、CIDR 和节点列表。
+
+all:
+  children:
+    etcd:
+      hosts:
+        master-01:
+          ansible_host: 192.168.1.10
+          etcd_name: master-01
+        master-02:
+          ansible_host: 192.168.1.11
+          etcd_name: master-02
+        master-03:
+          ansible_host: 192.168.1.12
+          etcd_name: master-03
+
+    kube_master:
+      hosts:
+        master-01:
+          ansible_host: 192.168.1.10
+        master-02:
+          ansible_host: 192.168.1.11
+        master-03:
+          ansible_host: 192.168.1.12
+
+    compute_servers:
+      hosts:
+        worker-01:
+          ansible_host: 192.168.1.21
+
+    storage:
+      hosts:
+        worker-01:
+          ansible_host: 192.168.1.21
+
+    kube_node:
+      children:
+        kube_master:
+        compute_servers:
+
+  vars:
+    node_type: "machine"
+    cluster_mode: "ha"
+
+    ansible_user: root
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no"
+
+    enable_keepalived: true
+    LB_APISERVER_VIP: 192.168.1.100
+    LB_APISERVER_PORT: 8443
+    LB_INTERFACE: eth0
+
+    local_cluster_config_dir: "/root/.ssl_build"
+
+    target_arch: "amd64"
+    download_dir: "{{ playbook_dir }}/files"
+    download_arch_dir: "{{ download_dir }}/{{ target_arch }}"
+
+    SERVICE_CIDR: 10.96.0.0/16
+    CLUSTER_CIDR: 10.244.0.0/16
+    CLUSTER_DNS_SVC_IP: 10.96.0.10
+    CLUSTER_DOMAIN: cluster.local
+
+    MASTER_CERT_HOSTS:
+      - 192.168.1.100
+      - 192.168.1.10
+      - 192.168.1.11
+      - 192.168.1.12
+      - 127.0.0.1
+      - 10.96.0.1
+      - kubernetes
+      - kubernetes.default
+      - kubernetes.default.svc
+      - kubernetes.default.svc.cluster.local
+
+    CONTAINERD_CGROUP_DRIVER: systemd
+    SANDBOX_IMAGE: "registry.k8s.io/pause:3.10.2"
+
+    storage_enabled: false
+    storage_backend: local-lvm
+    storage_default_class: local-lvm
