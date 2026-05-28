@@ -1,0 +1,221 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: topolvm-controller
+  namespace: {{ local_lvm_namespace }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: topolvm-node
+  namespace: {{ local_lvm_namespace }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: lvmd-config
+  namespace: {{ local_lvm_namespace }}
+data:
+  lvmd.yaml: |
+{% filter indent(width=4, first=True) %}
+socket-name: /run/topolvm/lvmd.sock
+device-classes:
+  - name: {{ local_lvm_storage_class }}
+    volume-group: {{ local_lvm_vg_name }}
+    default: {{ local_lvm_default | ternary('true', 'false') }}
+    spare-gb: 10
+    type: thin
+    thin-pool:
+      name: {{ local_lvm_storage_class }}-pool
+      overprovision-ratio: {{ local_lvm_overprovision_ratio }}
+{% endfilter %}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: topolvm-controller
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumes", "persistentvolumeclaims", "pods", "nodes", "events"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["csinodes", "storageclasses", "volumeattachments"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: topolvm-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: topolvm-controller
+subjects:
+  - kind: ServiceAccount
+    name: topolvm-controller
+    namespace: {{ local_lvm_namespace }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: topolvm-controller
+  namespace: {{ local_lvm_namespace }}
+spec:
+  replicas: {{ local_lvm_controller_replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: topolvm-controller
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: topolvm-controller
+    spec:
+      serviceAccountName: topolvm-controller
+      containers:
+        - name: topolvm-controller
+          image: {{ local_lvm_topolvm_image }}:{{ local_lvm_topolvm_version }}
+          args:
+            - --leader-election=true
+          env:
+            - name: CSI_ENDPOINT
+              value: unix:///run/topolvm/csi-topolvm.sock
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /run/topolvm
+        - name: csi-provisioner
+          image: {{ csi_provisioner_image }}
+          args:
+            - --csi-address=/run/topolvm/csi-topolvm.sock
+            - --leader-election=true
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /run/topolvm
+        - name: csi-resizer
+          image: {{ csi_resizer_image }}
+          args:
+            - --csi-address=/run/topolvm/csi-topolvm.sock
+            - --leader-election=true
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /run/topolvm
+      volumes:
+        - name: socket-dir
+          emptyDir: {}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: topolvm-node
+  namespace: {{ local_lvm_namespace }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: topolvm-node
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: topolvm-node
+    spec:
+      serviceAccountName: topolvm-node
+      hostPID: true
+      containers:
+        - name: lvmd
+          image: {{ local_lvm_topolvm_image }}:{{ local_lvm_topolvm_version }}
+          securityContext:
+            privileged: true
+          command: ["/topolvm", "lvmd"]
+          args:
+            - --config=/etc/topolvm/lvmd.yaml
+          volumeMounts:
+            - name: lvmd-config
+              mountPath: /etc/topolvm
+            - name: run-topolvm
+              mountPath: /run/topolvm
+            - name: dev
+              mountPath: /dev
+            - name: run-udev
+              mountPath: /run/udev
+        - name: node
+          image: {{ local_lvm_topolvm_image }}:{{ local_lvm_topolvm_version }}
+          securityContext:
+            privileged: true
+          command: ["/topolvm", "node"]
+          args:
+            - --lvmd-socket=/run/topolvm/lvmd.sock
+          env:
+            - name: CSI_ENDPOINT
+              value: unix:///run/topolvm/csi-topolvm.sock
+          volumeMounts:
+            - name: run-topolvm
+              mountPath: /run/topolvm
+            - name: kubelet-dir
+              mountPath: /var/lib/kubelet
+              mountPropagation: Bidirectional
+            - name: dev
+              mountPath: /dev
+        - name: node-driver-registrar
+          image: {{ csi_node_driver_registrar_image }}
+          args:
+            - --csi-address=/run/topolvm/csi-topolvm.sock
+            - --kubelet-registration-path=/var/lib/kubelet/plugins/topolvm.io/node/csi-topolvm.sock
+          volumeMounts:
+            - name: run-topolvm
+              mountPath: /run/topolvm
+            - name: registration-dir
+              mountPath: /registration
+            - name: plugin-dir
+              mountPath: /var/lib/kubelet/plugins/topolvm.io/node
+      volumes:
+        - name: lvmd-config
+          configMap:
+            name: lvmd-config
+        - name: run-topolvm
+          hostPath:
+            path: /run/topolvm
+            type: DirectoryOrCreate
+        - name: dev
+          hostPath:
+            path: /dev
+        - name: run-udev
+          hostPath:
+            path: /run/udev
+        - name: kubelet-dir
+          hostPath:
+            path: /var/lib/kubelet
+        - name: registration-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins_registry
+        - name: plugin-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins/topolvm.io/node
+            type: DirectoryOrCreate
+---
+apiVersion: storage.k8s.io/v1
+kind: CSIDriver
+metadata:
+  name: topolvm.io
+spec:
+  attachRequired: false
+  podInfoOnMount: true
+  storageCapacity: true
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: {{ local_lvm_storage_class }}
+  annotations:
+{% if storage_default_class == local_lvm_storage_class %}
+    storageclass.kubernetes.io/is-default-class: "true"
+{% else %}
+    storageclass.kubernetes.io/is-default-class: "false"
+{% endif %}
+provisioner: topolvm.io
+allowVolumeExpansion: {{ storage_expansion_enabled | ternary('true', 'false') }}
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: {{ storage_reclaim_policy }}
+parameters:
+  topolvm.io/device-class: {{ local_lvm_storage_class }}
