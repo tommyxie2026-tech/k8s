@@ -1,0 +1,9 @@
+---
+nfs_namespace: nfs-csi-system
+nfs_storage_class: nfs-csi
+nfs_provisioner_name: k8s-sigs.io/nfs-subdir-external-provisioner
+nfs_provisioner_image: registry.k8s.io/sig-storage/nfs-subdir-external-provisioner:v4.0.2
+nfs_server: ""
+nfs_path: ""
+nfs_reclaim_policy: Delete
+nfs_archive_on_delete: "true"
