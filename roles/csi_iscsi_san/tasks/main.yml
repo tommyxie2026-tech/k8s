@@ -1,0 +1,66 @@
+---
+# Enterprise iSCSI SAN CSI integration framework.
+# Safe by default: installs node prerequisites and optionally applies a user-provided vendor/generic CSI manifest.
+# This role never creates/deletes external SAN LUNs.
+
+- name: Validate iSCSI SAN backend
+  assert:
+    that:
+      - storage_backend == 'iscsi-san'
+      - iscsi_target_portals | length > 0
+    fail_msg: "csi_iscsi_san requires storage_backend=iscsi-san and non-empty iscsi_target_portals"
+
+- name: Install iSCSI node packages
+  package:
+    name:
+      - open-iscsi
+      - multipath-tools
+    state: present
+  become: true
+  failed_when: false
+
+- name: Enable iSCSI services
+  systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  become: true
+  loop:
+    - iscsid
+  failed_when: false
+
+- name: Enable multipathd when requested
+  systemd:
+    name: multipathd
+    enabled: true
+    state: started
+  become: true
+  when: iscsi_multipath_enabled | bool
+  failed_when: false
+
+- name: Print iSCSI SAN plan
+  debug:
+    msg:
+      - "iscsi_target_portals={{ iscsi_target_portals }}"
+      - "iscsi_chap_enabled={{ iscsi_chap_enabled }}"
+      - "iscsi_multipath_enabled={{ iscsi_multipath_enabled }}"
+      - "iscsi_csi_manifest_enabled={{ iscsi_csi_manifest_enabled }}"
+      - "No external SAN LUN lifecycle operation will be performed by this role."
+
+- name: Apply external iSCSI CSI manifest when explicitly enabled
+  command: >
+    {{ download_arch_dir }}/kubectl apply -f {{ iscsi_csi_manifest_src }}
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: iscsi_manifest_apply
+  changed_when: false
+  when:
+    - iscsi_csi_manifest_enabled | bool
+    - iscsi_csi_manifest_src | length > 0
+  delegate_to: localhost
+
+- name: Show iSCSI CSI manifest apply result
+  debug:
+    var: iscsi_manifest_apply.stdout_lines
+  when:
+    - iscsi_manifest_apply is defined
+    - iscsi_manifest_apply.stdout_lines is defined
