@@ -1,0 +1,128 @@
+---
+# 0061-storage-health-check.yml
+# Enterprise CSI / storage health check.
+# This playbook is read-only by default and validates CSI/storage resources.
+
+- name: storage health check - Kubernetes resources
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Check storage backend
+      assert:
+        that:
+          - storage_backend is defined
+          - storage_backend in ['local-lvm', 'nfs', 'iscsi-san', 'rook-ceph']
+        fail_msg: "storage_backend must be one of local-lvm/nfs/iscsi-san/rook-ceph"
+
+    - name: Set storage health facts
+      set_fact:
+        storage_health_namespace: >-
+          {{ local_lvm_namespace if storage_backend == 'local-lvm' else
+             'rook-ceph' if storage_backend == 'rook-ceph' else
+             'kube-system' }}
+        storage_health_csi_driver: >-
+          {{ 'topolvm.io' if storage_backend == 'local-lvm' else
+             'rook-ceph.rbd.csi.ceph.com' if storage_backend == 'rook-ceph' else
+             'nfs.csi.k8s.io' if storage_backend == 'nfs' else
+             'iscsi.csi.k8s.io' }}
+
+    - name: Get StorageClass
+      command: >
+        {{ download_arch_dir }}/kubectl get sc
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+      register: health_sc
+      changed_when: false
+      failed_when: false
+
+    - name: Get CSIDriver
+      command: >
+        {{ download_arch_dir }}/kubectl get csidriver
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+      register: health_csidriver
+      changed_when: false
+      failed_when: false
+
+    - name: Get CSI pods
+      command: >
+        {{ download_arch_dir }}/kubectl -n {{ storage_health_namespace }} get pods -o wide
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+      register: health_csi_pods
+      changed_when: false
+      failed_when: false
+
+    - name: Get PVCs
+      command: >
+        {{ download_arch_dir }}/kubectl get pvc -A
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+      register: health_pvc
+      changed_when: false
+      failed_when: false
+
+    - name: Get PVs
+      command: >
+        {{ download_arch_dir }}/kubectl get pv
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+      register: health_pv
+      changed_when: false
+      failed_when: false
+
+    - name: Get VolumeAttachments
+      command: >
+        {{ download_arch_dir }}/kubectl get volumeattachment
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+      register: health_volumeattachment
+      changed_when: false
+      failed_when: false
+
+    - name: Print storage health report
+      debug:
+        msg:
+          - "storage_backend={{ storage_backend }}"
+          - "expected_csi_driver={{ storage_health_csi_driver }}"
+          - "namespace={{ storage_health_namespace }}"
+          - "===== StorageClass ====="
+          - "{{ health_sc.stdout_lines | default([]) }}"
+          - "===== CSIDriver ====="
+          - "{{ health_csidriver.stdout_lines | default([]) }}"
+          - "===== CSI Pods ====="
+          - "{{ health_csi_pods.stdout_lines | default([]) }}"
+          - "===== PVC ====="
+          - "{{ health_pvc.stdout_lines | default([]) }}"
+          - "===== PV ====="
+          - "{{ health_pv.stdout_lines | default([]) }}"
+          - "===== VolumeAttachment ====="
+          - "{{ health_volumeattachment.stdout_lines | default([]) }}"
+
+    - name: Assert expected CSIDriver exists for installed backend
+      assert:
+        that:
+          - storage_health_csi_driver in health_csidriver.stdout
+        fail_msg: "Expected CSIDriver {{ storage_health_csi_driver }} not found"
+        success_msg: "Expected CSIDriver {{ storage_health_csi_driver }} exists"
+      when: storage_enabled | default(false) | bool
+
+- name: storage health check - iSCSI node sessions
+  hosts: kube_node
+  gather_facts: no
+  become: yes
+  tasks:
+    - name: Check iSCSI session list
+      shell: iscsiadm -m session
+      register: iscsi_session_health
+      changed_when: false
+      failed_when: false
+      when: storage_backend == 'iscsi-san'
+
+    - name: Check multipath status
+      shell: multipath -ll
+      register: multipath_health
+      changed_when: false
+      failed_when: false
+      when: storage_backend == 'iscsi-san'
+
+    - name: Print iSCSI health
+      debug:
+        msg:
+          - "iscsi_session_rc={{ iscsi_session_health.rc | default('N/A') }}"
+          - "multipath_rc={{ multipath_health.rc | default('N/A') }}"
+      when: storage_backend == 'iscsi-san'
