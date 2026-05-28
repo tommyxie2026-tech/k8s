@@ -1,7 +1,7 @@
 ---
 # 0059-install-csi.yml
 # Enterprise CSI installation entry.
-# Current phase: local-lvm baseline only.
+# Supported backends: local-lvm, nfs, iscsi-san, rook-ceph.
 
 - name: storage install - preflight
   hosts: localhost
@@ -9,9 +9,30 @@
   roles:
     - storage_preflight
 
-- name: install local-lvm CSI baseline
+- name: install local-lvm CSI
   hosts: kube_node
   gather_facts: no
   roles:
     - role: csi_local_lvm
       when: storage_backend == 'local-lvm'
+
+- name: install NFS CSI
+  hosts: localhost
+  gather_facts: no
+  roles:
+    - role: csi_nfs
+      when: storage_backend == 'nfs'
+
+- name: prepare iSCSI SAN CSI
+  hosts: kube_node
+  gather_facts: no
+  roles:
+    - role: csi_iscsi_san
+      when: storage_backend == 'iscsi-san'
+
+- name: install Rook Ceph CSI framework
+  hosts: localhost
+  gather_facts: no
+  roles:
+    - role: csi_rook_ceph
+      when: storage_backend == 'rook-ceph'
