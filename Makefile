@@ -1,4 +1,4 @@
-.PHONY: syntax-check syntax-check-single syntax-check-single-to-ha storage-preflight install-csi preflight-container deploy-container deploy-container-offline deploy-single deploy-single-offline migrate-single-to-ha-preflight migrate-single-to-ha-backup migrate-single-to-ha-etcd-preflight migrate-single-to-ha-expand-etcd migrate-single-to-ha-renew-apiserver-cert migrate-single-to-ha-expand-control-plane migrate-single-to-ha-enable-ha-lb migrate-single-to-ha-switch-kubeconfigs-to-vip migrate-single-to-ha cleanup-container smoke-test
+.PHONY: syntax-check syntax-check-single syntax-check-single-to-ha storage-preflight install-csi install-storageclass storage-health-check preflight-container deploy-container deploy-container-offline deploy-single deploy-single-offline migrate-single-to-ha-preflight migrate-single-to-ha-backup migrate-single-to-ha-etcd-preflight migrate-single-to-ha-expand-etcd migrate-single-to-ha-renew-apiserver-cert migrate-single-to-ha-expand-control-plane migrate-single-to-ha-enable-ha-lb migrate-single-to-ha-switch-kubeconfigs-to-vip migrate-single-to-ha cleanup-container smoke-test
 
 INVENTORY ?= inventories/hosts-container.yml
 KUBECONFIG_PATH ?= $(HOME)/.kube/config
@@ -23,6 +23,12 @@ storage-preflight:
 
 install-csi:
 	ansible-playbook -i $(INVENTORY) 0059-install-csi.yml
+
+install-storageclass:
+	ansible-playbook -i $(INVENTORY) 0060-install-storageclass.yml
+
+storage-health-check:
+	ansible-playbook -i $(INVENTORY) 0061-storage-health-check.yml
 
 preflight-container:
 	ansible-playbook -i inventories/hosts-container.yml 0000-container-infra.yml
