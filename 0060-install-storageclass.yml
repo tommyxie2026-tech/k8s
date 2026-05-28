@@ -1,0 +1,23 @@
+---
+# 0060-install-storageclass.yml
+# Enterprise StorageClass management.
+# Current phase focuses on validation-safe apply flow.
+
+- name: install storageclass
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Validate storage backend
+      assert:
+        that:
+          - storage_backend is defined
+          - storage_backend in ['local-lvm', 'nfs', 'iscsi-san', 'rook-ceph']
+
+    - name: Print storageclass plan
+      debug:
+        msg:
+          - "storage_backend={{ storage_backend }}"
+          - "storage_default_class={{ storage_default_class }}"
+          - "storage_reclaim_policy={{ storage_reclaim_policy }}"
+          - "storage_expansion_enabled={{ storage_expansion_enabled }}"
+          - "StorageClass currently managed by CSI install roles."
