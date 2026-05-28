@@ -1,0 +1,69 @@
+---
+{% if ceph_enable_rbd | bool %}
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: {{ ceph_storage_class }}
+  annotations:
+{% if storage_default_class == ceph_storage_class %}
+    storageclass.kubernetes.io/is-default-class: "true"
+{% else %}
+    storageclass.kubernetes.io/is-default-class: "false"
+{% endif %}
+provisioner: rook-ceph.rbd.csi.ceph.com
+allowVolumeExpansion: {{ storage_expansion_enabled | ternary('true', 'false') }}
+reclaimPolicy: {{ storage_reclaim_policy }}
+volumeBindingMode: WaitForFirstConsumer
+parameters:
+  clusterID: {{ rook_ceph_namespace }}
+  pool: replicapool
+  imageFormat: "2"
+  imageFeatures: layering
+  csi.storage.k8s.io/provisioner-secret-name: rook-csi-rbd-provisioner
+  csi.storage.k8s.io/provisioner-secret-namespace: {{ rook_ceph_namespace }}
+  csi.storage.k8s.io/controller-expand-secret-name: rook-csi-rbd-provisioner
+  csi.storage.k8s.io/controller-expand-secret-namespace: {{ rook_ceph_namespace }}
+  csi.storage.k8s.io/node-stage-secret-name: rook-csi-rbd-node
+  csi.storage.k8s.io/node-stage-secret-namespace: {{ rook_ceph_namespace }}
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: {{ ceph_retain_storage_class }}
+provisioner: rook-ceph.rbd.csi.ceph.com
+allowVolumeExpansion: {{ storage_expansion_enabled | ternary('true', 'false') }}
+reclaimPolicy: Retain
+volumeBindingMode: WaitForFirstConsumer
+parameters:
+  clusterID: {{ rook_ceph_namespace }}
+  pool: replicapool
+  imageFormat: "2"
+  imageFeatures: layering
+  csi.storage.k8s.io/provisioner-secret-name: rook-csi-rbd-provisioner
+  csi.storage.k8s.io/provisioner-secret-namespace: {{ rook_ceph_namespace }}
+  csi.storage.k8s.io/controller-expand-secret-name: rook-csi-rbd-provisioner
+  csi.storage.k8s.io/controller-expand-secret-namespace: {{ rook_ceph_namespace }}
+  csi.storage.k8s.io/node-stage-secret-name: rook-csi-rbd-node
+  csi.storage.k8s.io/node-stage-secret-namespace: {{ rook_ceph_namespace }}
+{% endif %}
+{% if ceph_enable_cephfs | bool %}
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: {{ cephfs_storage_class }}
+provisioner: rook-ceph.cephfs.csi.ceph.com
+allowVolumeExpansion: {{ storage_expansion_enabled | ternary('true', 'false') }}
+reclaimPolicy: {{ storage_reclaim_policy }}
+volumeBindingMode: WaitForFirstConsumer
+parameters:
+  clusterID: {{ rook_ceph_namespace }}
+  fsName: myfs
+  pool: myfs-replicated
+  csi.storage.k8s.io/provisioner-secret-name: rook-csi-cephfs-provisioner
+  csi.storage.k8s.io/provisioner-secret-namespace: {{ rook_ceph_namespace }}
+  csi.storage.k8s.io/controller-expand-secret-name: rook-csi-cephfs-provisioner
+  csi.storage.k8s.io/controller-expand-secret-namespace: {{ rook_ceph_namespace }}
+  csi.storage.k8s.io/node-stage-secret-name: rook-csi-cephfs-node
+  csi.storage.k8s.io/node-stage-secret-namespace: {{ rook_ceph_namespace }}
+{% endif %}
