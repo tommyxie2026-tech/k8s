@@ -1,0 +1,15 @@
+---
+rook_ceph_namespace: rook-ceph
+rook_ceph_operator_manifest_enabled: false
+rook_ceph_operator_manifest_src: ""
+rook_ceph_cluster_manifest_enabled: false
+rook_ceph_cluster_manifest_src: ""
+rook_ceph_apply_storageclasses: true
+ceph_storage_class: ceph-rbd
+ceph_retain_storage_class: ceph-rbd-retain
+cephfs_storage_class: cephfs
+ceph_replica_size: 3
+ceph_enable_rbd: true
+ceph_enable_cephfs: true
+ceph_auto_discover_devices: false
+ceph_osd_devices: []
