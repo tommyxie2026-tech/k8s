@@ -1,0 +1,67 @@
+---
+# Rook Ceph CSI integration framework.
+# Safe by default: applies only user-provided Rook manifests when explicitly enabled.
+# This role never formats disks directly.
+
+- name: Validate Rook Ceph backend
+  assert:
+    that:
+      - storage_backend == 'rook-ceph'
+      - ceph_replica_size | int >= 1
+
+- name: Print Rook Ceph plan
+  debug:
+    msg:
+      - "rook_ceph_namespace={{ rook_ceph_namespace }}"
+      - "ceph_replica_size={{ ceph_replica_size }}"
+      - "ceph_osd_devices={{ ceph_osd_devices | default([]) }}"
+      - "ceph_auto_discover_devices={{ ceph_auto_discover_devices }}"
+      - "rook_ceph_operator_manifest_enabled={{ rook_ceph_operator_manifest_enabled }}"
+      - "rook_ceph_cluster_manifest_enabled={{ rook_ceph_cluster_manifest_enabled }}"
+      - "This role does not format disks directly."
+
+- name: Apply Rook operator manifest when explicitly enabled
+  command: >
+    {{ download_arch_dir }}/kubectl apply -f {{ rook_ceph_operator_manifest_src }}
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: rook_operator_apply
+  changed_when: false
+  when:
+    - rook_ceph_operator_manifest_enabled | bool
+    - rook_ceph_operator_manifest_src | length > 0
+  delegate_to: localhost
+
+- name: Apply Rook cluster manifest when explicitly enabled
+  command: >
+    {{ download_arch_dir }}/kubectl apply -f {{ rook_ceph_cluster_manifest_src }}
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: rook_cluster_apply
+  changed_when: false
+  when:
+    - rook_ceph_cluster_manifest_enabled | bool
+    - rook_ceph_cluster_manifest_src | length > 0
+  delegate_to: localhost
+
+- name: Render Ceph StorageClass manifest
+  template:
+    src: ceph-storageclasses.yaml.j2
+    dest: /tmp/ceph-storageclasses.yaml
+    mode: '0644'
+  delegate_to: localhost
+  when: rook_ceph_apply_storageclasses | bool
+
+- name: Apply Ceph StorageClasses
+  command: >
+    {{ download_arch_dir }}/kubectl apply -f /tmp/ceph-storageclasses.yaml
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: ceph_sc_apply
+  changed_when: false
+  delegate_to: localhost
+  when: rook_ceph_apply_storageclasses | bool
+
+- name: Show Ceph StorageClass apply result
+  debug:
+    var: ceph_sc_apply.stdout_lines
+  when:
+    - ceph_sc_apply is defined
+    - ceph_sc_apply.stdout_lines is defined
