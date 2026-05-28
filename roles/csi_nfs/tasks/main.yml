@@ -1,0 +1,64 @@
+---
+- name: Validate NFS backend
+  assert:
+    that:
+      - storage_backend == 'nfs'
+      - nfs_server | length > 0
+      - nfs_path | length > 0
+
+- name: Render NFS CSI manifest
+  copy:
+    dest: /tmp/nfs-csi.yaml
+    mode: '0644'
+    content: |
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: {{ nfs_namespace }}
+      ---
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: nfs-subdir-external-provisioner
+        namespace: {{ nfs_namespace }}
+      spec:
+        replicas: 1
+        selector:
+          matchLabels:
+            app: nfs-subdir-external-provisioner
+        template:
+          metadata:
+            labels:
+              app: nfs-subdir-external-provisioner
+          spec:
+            containers:
+              - name: provisioner
+                image: {{ nfs_provisioner_image }}
+                env:
+                  - name: PROVISIONER_NAME
+                    value: {{ nfs_provisioner_name }}
+                  - name: NFS_SERVER
+                    value: {{ nfs_server }}
+                  - name: NFS_PATH
+                    value: {{ nfs_path }}
+      ---
+      apiVersion: storage.k8s.io/v1
+      kind: StorageClass
+      metadata:
+        name: {{ nfs_storage_class }}
+      provisioner: {{ nfs_provisioner_name }}
+      reclaimPolicy: {{ nfs_reclaim_policy }}
+      allowVolumeExpansion: true
+      parameters:
+        archiveOnDelete: "{{ nfs_archive_on_delete }}"
+
+- name: Apply NFS CSI manifest
+  command: >
+    {{ download_arch_dir }}/kubectl apply -f /tmp/nfs-csi.yaml
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: nfs_apply
+  changed_when: false
+
+- name: Show NFS apply result
+  debug:
+    var: nfs_apply.stdout_lines
