@@ -14,3 +14,8 @@ local_lvm_topolvm_version: v0.35.0
 local_lvm_controller_replicas: 1
 local_lvm_overprovision_ratio: 10
 local_lvm_default: false
+
+local_lvm_topolvm_image: ghcr.io/topolvm/topolvm
+csi_provisioner_image: registry.k8s.io/sig-storage/csi-provisioner:v5.0.1
+csi_resizer_image: registry.k8s.io/sig-storage/csi-resizer:v1.10.1
+csi_node_driver_registrar_image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.10.1
