@@ -18,13 +18,16 @@
       set_fact:
         storage_health_namespace: >-
           {{ local_lvm_namespace if storage_backend == 'local-lvm' else
-             'rook-ceph' if storage_backend == 'rook-ceph' else
-             'kube-system' }}
-        storage_health_csi_driver: >-
+             rook_ceph_namespace if storage_backend == 'rook-ceph' else
+             nfs_namespace if storage_backend == 'nfs' else
+             iscsi_namespace }}
+        storage_health_expected_driver: >-
           {{ 'topolvm.io' if storage_backend == 'local-lvm' else
              'rook-ceph.rbd.csi.ceph.com' if storage_backend == 'rook-ceph' else
-             'nfs.csi.k8s.io' if storage_backend == 'nfs' else
-             'iscsi.csi.k8s.io' }}
+             iscsi_csi_driver_name if storage_backend == 'iscsi-san' else
+             '' }}
+        storage_health_requires_csidriver: >-
+          {{ storage_backend in ['local-lvm', 'rook-ceph', 'iscsi-san'] }}
 
     - name: Get StorageClass
       command: >
@@ -42,11 +45,11 @@
       changed_when: false
       failed_when: false
 
-    - name: Get CSI pods
+    - name: Get storage pods
       command: >
         {{ download_arch_dir }}/kubectl -n {{ storage_health_namespace }} get pods -o wide
         --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
-      register: health_csi_pods
+      register: health_storage_pods
       changed_when: false
       failed_when: false
 
@@ -78,14 +81,15 @@
       debug:
         msg:
           - "storage_backend={{ storage_backend }}"
-          - "expected_csi_driver={{ storage_health_csi_driver }}"
+          - "expected_driver={{ storage_health_expected_driver }}"
           - "namespace={{ storage_health_namespace }}"
+          - "requires_csidriver={{ storage_health_requires_csidriver }}"
           - "===== StorageClass ====="
           - "{{ health_sc.stdout_lines | default([]) }}"
           - "===== CSIDriver ====="
           - "{{ health_csidriver.stdout_lines | default([]) }}"
-          - "===== CSI Pods ====="
-          - "{{ health_csi_pods.stdout_lines | default([]) }}"
+          - "===== Storage Pods ====="
+          - "{{ health_storage_pods.stdout_lines | default([]) }}"
           - "===== PVC ====="
           - "{{ health_pvc.stdout_lines | default([]) }}"
           - "===== PV ====="
@@ -96,10 +100,12 @@
     - name: Assert expected CSIDriver exists for installed backend
       assert:
         that:
-          - storage_health_csi_driver in health_csidriver.stdout
-        fail_msg: "Expected CSIDriver {{ storage_health_csi_driver }} not found"
-        success_msg: "Expected CSIDriver {{ storage_health_csi_driver }} exists"
-      when: storage_enabled | default(false) | bool
+          - storage_health_expected_driver in health_csidriver.stdout
+        fail_msg: "Expected CSIDriver {{ storage_health_expected_driver }} not found"
+        success_msg: "Expected CSIDriver {{ storage_health_expected_driver }} exists"
+      when:
+        - storage_enabled | default(false) | bool
+        - storage_health_requires_csidriver | bool
 
 - name: storage health check - iSCSI node sessions
   hosts: kube_node
