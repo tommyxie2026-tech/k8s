@@ -27,6 +27,11 @@ COMMON_PLAYBOOKS=(
   0400-cert-expiry-check.yml
   0401-renew-component-certs.yml
   0058-storage-preflight.yml
+  0059-install-csi.yml
+  0060-install-storageclass.yml
+  0061-storage-health-check.yml
+  0062-storage-migration-check.yml
+  0063-storage-pvc-validate.yml
   0090-stop-services.yml
   0091-reset-node-runtime.yml
 )
@@ -57,6 +62,11 @@ case "${MODE}" in
       0056-enable-ha-lb.yml
       0057-switch-kubeconfigs-to-vip.yml
       0058-storage-preflight.yml
+      0059-install-csi.yml
+      0060-install-storageclass.yml
+      0061-storage-health-check.yml
+      0062-storage-migration-check.yml
+      0063-storage-pvc-validate.yml
       0050-single-to-ha.yml
     )
     ;;
