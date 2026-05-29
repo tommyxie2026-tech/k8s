@@ -1,0 +1,176 @@
+---
+# 0063-storage-pvc-validate.yml
+# Enterprise CSI PVC validation.
+# Creates a temporary PVC + Pod, verifies Bound/Mounted/Write, and cleans up by default.
+
+- name: storage pvc validate - create and verify test workload
+  hosts: localhost
+  gather_facts: no
+  vars:
+    storage_validate_namespace: storage-validate
+    storage_validate_pvc_name: storage-validate-pvc
+    storage_validate_pod_name: storage-validate-pod
+    storage_validate_size: 1Gi
+    storage_validate_cleanup: true
+    storage_validate_expand: false
+    storage_validate_expand_size: 2Gi
+  tasks:
+    - name: Validate storage backend
+      assert:
+        that:
+          - storage_backend is defined
+          - storage_backend in ['local-lvm', 'nfs', 'iscsi-san', 'rook-ceph']
+          - storage_default_class is defined
+        fail_msg: "storage_backend/storage_default_class must be configured before PVC validation"
+
+    - name: Print validation plan
+      debug:
+        msg:
+          - "storage_backend={{ storage_backend }}"
+          - "storage_default_class={{ storage_default_class }}"
+          - "namespace={{ storage_validate_namespace }}"
+          - "pvc={{ storage_validate_pvc_name }}"
+          - "pod={{ storage_validate_pod_name }}"
+          - "cleanup={{ storage_validate_cleanup }}"
+          - "expand={{ storage_validate_expand }}"
+
+    - name: Create validation namespace
+      command: >
+        {{ download_arch_dir }}/kubectl create namespace {{ storage_validate_namespace }}
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+      register: validate_ns_create
+      changed_when: "'created' in validate_ns_create.stdout"
+      failed_when: false
+
+    - name: Apply validation PVC and Pod
+      shell: |
+        cat <<'EOF' | {{ download_arch_dir }}/kubectl apply -f - \
+          --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+        apiVersion: v1
+        kind: PersistentVolumeClaim
+        metadata:
+          name: {{ storage_validate_pvc_name }}
+          namespace: {{ storage_validate_namespace }}
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          storageClassName: {{ storage_default_class }}
+          resources:
+            requests:
+              storage: {{ storage_validate_size }}
+        ---
+        apiVersion: v1
+        kind: Pod
+        metadata:
+          name: {{ storage_validate_pod_name }}
+          namespace: {{ storage_validate_namespace }}
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: writer
+              image: busybox:1.36
+              command:
+                - sh
+                - -c
+                - |
+                  set -e
+                  echo "storage-validate-$(date +%s)" > /data/validate.txt
+                  cat /data/validate.txt
+                  sleep 30
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: {{ storage_validate_pvc_name }}
+        EOF
+      args:
+        executable: /bin/bash
+      register: validate_apply
+      changed_when: false
+
+    - name: Wait for PVC Bound
+      command: >
+        {{ download_arch_dir }}/kubectl -n {{ storage_validate_namespace }}
+        wait --for=jsonpath='{.status.phase}'=Bound pvc/{{ storage_validate_pvc_name }} --timeout=180s
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+      register: validate_pvc_bound
+      changed_when: false
+      failed_when: false
+
+    - name: Wait for Pod Ready or Completed
+      shell: |
+        set -euo pipefail
+        for i in $(seq 1 60); do
+          phase=$({{ download_arch_dir }}/kubectl -n {{ storage_validate_namespace }} get pod {{ storage_validate_pod_name }} \
+            -o jsonpath='{.status.phase}' \
+            --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig 2>/dev/null || true)
+          if [ "$phase" = "Running" ] || [ "$phase" = "Succeeded" ]; then
+            echo "$phase"
+            exit 0
+          fi
+          sleep 5
+        done
+        {{ download_arch_dir }}/kubectl -n {{ storage_validate_namespace }} describe pod {{ storage_validate_pod_name }} \
+          --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig || true
+        exit 1
+      args:
+        executable: /bin/bash
+      register: validate_pod_phase
+      changed_when: false
+      failed_when: false
+
+    - name: Fetch validation pod logs
+      command: >
+        {{ download_arch_dir }}/kubectl -n {{ storage_validate_namespace }} logs {{ storage_validate_pod_name }}
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+      register: validate_pod_logs
+      changed_when: false
+      failed_when: false
+
+    - name: Expand validation PVC when requested
+      command: >
+        {{ download_arch_dir }}/kubectl -n {{ storage_validate_namespace }} patch pvc {{ storage_validate_pvc_name }}
+        -p '{"spec":{"resources":{"requests":{"storage":"{{ storage_validate_expand_size }}"}}}}'
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+      register: validate_expand_patch
+      changed_when: false
+      failed_when: false
+      when: storage_validate_expand | bool
+
+    - name: Read final validation resources
+      shell: |
+        set -euo pipefail
+        {{ download_arch_dir }}/kubectl -n {{ storage_validate_namespace }} get pvc,pod -o wide \
+          --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig || true
+      args:
+        executable: /bin/bash
+      register: validate_final_resources
+      changed_when: false
+
+    - name: Print validation result
+      debug:
+        msg:
+          - "PVC bound rc={{ validate_pvc_bound.rc }}"
+          - "Pod phase rc={{ validate_pod_phase.rc }}"
+          - "Pod phase/log={{ validate_pod_phase.stdout | default('') }}"
+          - "Pod logs={{ validate_pod_logs.stdout_lines | default([]) }}"
+          - "Final resources={{ validate_final_resources.stdout_lines | default([]) }}"
+
+    - name: Cleanup validation namespace
+      command: >
+        {{ download_arch_dir }}/kubectl delete namespace {{ storage_validate_namespace }} --ignore-not-found=true
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+      register: validate_cleanup
+      changed_when: false
+      when: storage_validate_cleanup | bool
+
+    - name: Assert validation success
+      assert:
+        that:
+          - validate_pvc_bound.rc == 0
+          - validate_pod_phase.rc == 0
+          - validate_pod_logs.stdout is search('storage-validate-')
+        fail_msg: "Storage PVC validation failed. Check PVC/Pod events and CSI logs."
+        success_msg: "Storage PVC validation passed."
