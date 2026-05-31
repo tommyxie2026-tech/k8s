@@ -1,0 +1,10 @@
+---
+# 0065-kubevirt-health-check.yml
+# Optional KubeVirt health check.
+# Read-only validation of KubeVirt installation.
+
+- name: kubevirt health check
+  hosts: localhost
+  gather_facts: no
+  roles:
+    - kubevirt_health
