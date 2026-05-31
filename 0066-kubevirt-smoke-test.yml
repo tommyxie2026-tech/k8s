@@ -1,0 +1,23 @@
+---
+# 0066-kubevirt-smoke-test.yml
+# Optional KubeVirt smoke test.
+# Disabled by default. It does not create VM resources unless kubevirt_enable_vm_smoke_test=true.
+
+- name: kubevirt smoke test gate
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Confirm smoke test is explicitly enabled
+      assert:
+        that:
+          - kubevirt_enabled | default(false) | bool
+          - kubevirt_enable_vm_smoke_test | default(false) | bool
+        fail_msg: "KubeVirt smoke test is disabled. Set kubevirt_enabled=true and kubevirt_enable_vm_smoke_test=true to run it."
+        success_msg: "KubeVirt smoke test is enabled."
+
+    - name: Print smoke test plan
+      debug:
+        msg:
+          - "KubeVirt smoke test scaffold is ready."
+          - "Current version intentionally does not create production VM resources."
+          - "Next phase will add an ephemeral test VM manifest using containerDisk and cloud-init."
