@@ -1,0 +1,10 @@
+---
+# 0070-kubevirt-vm-ops.yml
+# KubeVirt VM lifecycle operations.
+# Default recommended action is status. Mutating operations require explicit kubevirt_vm_action.
+
+- name: kubevirt VM lifecycle operations
+  hosts: localhost
+  gather_facts: no
+  roles:
+    - kubevirt_vm_ops
