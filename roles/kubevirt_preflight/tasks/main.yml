@@ -1,0 +1,121 @@
+---
+# KubeVirt preflight checks.
+# This role is read-only and does not install or modify KubeVirt resources.
+
+- name: Validate KubeVirt enable flag
+  assert:
+    that:
+      - kubevirt_enabled | default(false) | bool
+    fail_msg: "KubeVirt is disabled. Set kubevirt_enabled=true before running KubeVirt playbooks."
+    success_msg: "KubeVirt is enabled."
+  run_once: true
+  delegate_to: localhost
+
+- name: Validate KubeVirt manifest source
+  assert:
+    that:
+      - kubevirt_manifest_source in ['remote', 'local']
+    fail_msg: "kubevirt_manifest_source must be remote or local."
+    success_msg: "KubeVirt manifest source is valid."
+  run_once: true
+  delegate_to: localhost
+
+- name: Check kubectl exists
+  stat:
+    path: "{{ download_arch_dir }}/kubectl"
+  register: kubevirt_kubectl_stat
+  run_once: true
+  delegate_to: localhost
+
+- name: Assert kubectl exists
+  assert:
+    that:
+      - kubevirt_kubectl_stat.stat.exists
+    fail_msg: "kubectl not found at {{ download_arch_dir }}/kubectl."
+  run_once: true
+  delegate_to: localhost
+
+- name: Check admin kubeconfig exists
+  stat:
+    path: "{{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig"
+  register: kubevirt_admin_kubeconfig_stat
+  run_once: true
+  delegate_to: localhost
+
+- name: Assert admin kubeconfig exists
+  assert:
+    that:
+      - kubevirt_admin_kubeconfig_stat.stat.exists
+    fail_msg: "admin.kubeconfig not found."
+  run_once: true
+  delegate_to: localhost
+
+- name: Check Kubernetes access
+  command: >
+    {{ download_arch_dir }}/kubectl get nodes -o wide
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: kubevirt_nodes_output
+  changed_when: false
+  run_once: true
+  delegate_to: localhost
+
+- name: Print Kubernetes nodes
+  debug:
+    var: kubevirt_nodes_output.stdout_lines
+  run_once: true
+  delegate_to: localhost
+
+- name: Check /dev/kvm
+  stat:
+    path: /dev/kvm
+  register: dev_kvm_stat
+  when: kubevirt_require_kvm | default(true) | bool
+
+- name: Assert /dev/kvm exists when required
+  assert:
+    that:
+      - dev_kvm_stat.stat.exists
+    fail_msg: "{{ inventory_hostname }} does not have /dev/kvm. Enable nested virtualization or set kubevirt_enable_emulation=true for non-production."
+    success_msg: "{{ inventory_hostname }} has /dev/kvm."
+  when:
+    - kubevirt_require_kvm | default(true) | bool
+    - not kubevirt_enable_emulation | default(false) | bool
+
+- name: Check CPU virtualization flags
+  shell: grep -E 'vmx|svm' /proc/cpuinfo | head -n 1
+  register: cpu_virt_flags
+  changed_when: false
+  failed_when: false
+  when: kubevirt_require_kvm | default(true) | bool
+
+- name: Print CPU virtualization flag result
+  debug:
+    msg:
+      - "host={{ inventory_hostname }}"
+      - "cpu_virt_flag_rc={{ cpu_virt_flags.rc | default('N/A') }}"
+  when: kubevirt_require_kvm | default(true) | bool
+
+- name: Validate storage class for KubeVirt when enabled
+  command: >
+    {{ download_arch_dir }}/kubectl get sc {{ kubevirt_default_storage_class }}
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: kubevirt_storage_class_check
+  changed_when: false
+  failed_when: false
+  run_once: true
+  delegate_to: localhost
+  when:
+    - kubevirt_validate_storage | default(true) | bool
+    - kubevirt_default_storage_class | default('') | length > 0
+
+- name: Assert KubeVirt storage class exists
+  assert:
+    that:
+      - kubevirt_storage_class_check.rc == 0
+    fail_msg: "KubeVirt storage class {{ kubevirt_default_storage_class }} not found."
+    success_msg: "KubeVirt storage class {{ kubevirt_default_storage_class }} exists."
+  run_once: true
+  delegate_to: localhost
+  when:
+    - kubevirt_validate_storage | default(true) | bool
+    - kubevirt_default_storage_class | default('') | length > 0
