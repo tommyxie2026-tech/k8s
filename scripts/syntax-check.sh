@@ -38,6 +38,7 @@ COMMON_PLAYBOOKS=(
   0066-kubevirt-smoke-test.yml
   0067-install-kubevirt-cdi.yml
   0068-kubevirt-datavolume-smoke-test.yml
+  0069-install-virtctl.yml
   0090-stop-services.yml
   0091-reset-node-runtime.yml
 )
@@ -79,6 +80,7 @@ case "${MODE}" in
       0066-kubevirt-smoke-test.yml
       0067-install-kubevirt-cdi.yml
       0068-kubevirt-datavolume-smoke-test.yml
+      0069-install-virtctl.yml
       0050-single-to-ha.yml
     )
     ;;
