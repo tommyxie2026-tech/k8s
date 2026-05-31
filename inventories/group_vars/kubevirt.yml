@@ -26,4 +26,12 @@ kubevirt_cdi_version: v1.60.0
 kubevirt_cdi_operator_url: ""
 kubevirt_cdi_cr_url: ""
 
+# Smoke test is disabled by default.
+# It uses an ephemeral containerDisk VM and does not create persistent PVCs.
 kubevirt_enable_vm_smoke_test: false
+kubevirt_smoke_test_namespace: kubevirt-smoke-test
+kubevirt_smoke_test_vm_name: testvm-ephemeral
+kubevirt_smoke_test_image: quay.io/kubevirt/cirros-container-disk-demo:latest
+kubevirt_smoke_test_memory: 256Mi
+kubevirt_smoke_test_cleanup: true
+kubevirt_smoke_test_wait_timeout: 180s
