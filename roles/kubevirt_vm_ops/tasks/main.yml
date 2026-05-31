@@ -1,0 +1,91 @@
+---
+# KubeVirt VM lifecycle operations.
+# Default action is status. Mutating operations require explicit kubevirt_vm_action.
+
+- name: Validate KubeVirt VM operation variables
+  assert:
+    that:
+      - kubevirt_enabled | default(false) | bool
+      - kubevirt_vm_action is defined
+      - kubevirt_vm_action in ['status', 'start', 'stop', 'restart', 'delete']
+      - kubevirt_vm_namespace is defined
+      - kubevirt_vm_namespace | length > 0
+      - kubevirt_vm_name is defined
+      - kubevirt_vm_name | length > 0
+    fail_msg: "Set kubevirt_enabled=true, kubevirt_vm_action=status|start|stop|restart|delete, kubevirt_vm_namespace and kubevirt_vm_name."
+
+- name: Show VM operation plan
+  debug:
+    msg:
+      - "kubevirt_vm_action={{ kubevirt_vm_action }}"
+      - "kubevirt_vm_namespace={{ kubevirt_vm_namespace }}"
+      - "kubevirt_vm_name={{ kubevirt_vm_name }}"
+
+- name: Get VM status before operation
+  command: >
+    {{ download_arch_dir }}/kubectl -n {{ kubevirt_vm_namespace }} get vm,vmi,pod
+    -l kubevirt.io/domain={{ kubevirt_vm_name }} -o wide
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: kubevirt_vm_status_before
+  changed_when: false
+  failed_when: false
+
+- name: Print VM status before operation
+  debug:
+    var: kubevirt_vm_status_before.stdout_lines
+
+- name: Start VM
+  command: >
+    {{ kubevirt_virtctl_install_path | default('/usr/local/bin/virtctl') }} start {{ kubevirt_vm_name }}
+    -n {{ kubevirt_vm_namespace }}
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: kubevirt_vm_start
+  changed_when: false
+  when: kubevirt_vm_action == 'start'
+
+- name: Stop VM
+  command: >
+    {{ kubevirt_virtctl_install_path | default('/usr/local/bin/virtctl') }} stop {{ kubevirt_vm_name }}
+    -n {{ kubevirt_vm_namespace }}
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: kubevirt_vm_stop
+  changed_when: false
+  when: kubevirt_vm_action == 'stop'
+
+- name: Restart VM
+  command: >
+    {{ kubevirt_virtctl_install_path | default('/usr/local/bin/virtctl') }} restart {{ kubevirt_vm_name }}
+    -n {{ kubevirt_vm_namespace }}
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: kubevirt_vm_restart
+  changed_when: false
+  when: kubevirt_vm_action == 'restart'
+
+- name: Delete VM only when action is delete
+  command: >
+    {{ download_arch_dir }}/kubectl -n {{ kubevirt_vm_namespace }} delete vm {{ kubevirt_vm_name }}
+    --ignore-not-found=true
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: kubevirt_vm_delete
+  changed_when: false
+  when: kubevirt_vm_action == 'delete'
+
+- name: Get VM status after operation
+  command: >
+    {{ download_arch_dir }}/kubectl -n {{ kubevirt_vm_namespace }} get vm,vmi,pod
+    -l kubevirt.io/domain={{ kubevirt_vm_name }} -o wide
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: kubevirt_vm_status_after
+  changed_when: false
+  failed_when: false
+
+- name: Print VM status after operation
+  debug:
+    var: kubevirt_vm_status_after.stdout_lines
+
+- name: Print console hint
+  debug:
+    msg:
+      - "Console hint: virtctl console {{ kubevirt_vm_name }} -n {{ kubevirt_vm_namespace }} --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig"
+      - "VNC hint: virtctl vnc {{ kubevirt_vm_name }} -n {{ kubevirt_vm_namespace }} --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig"
+  when: kubevirt_vm_action in ['status', 'start', 'restart']
