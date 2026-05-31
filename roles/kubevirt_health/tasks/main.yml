@@ -1,0 +1,86 @@
+---
+# KubeVirt health check role.
+# Read-only validation of KubeVirt components and CRDs.
+
+- name: Validate KubeVirt is enabled
+  assert:
+    that:
+      - kubevirt_enabled | default(false) | bool
+    fail_msg: "KubeVirt is disabled. Set kubevirt_enabled=true before running KubeVirt health checks."
+
+- name: Get KubeVirt namespace
+  command: >
+    {{ download_arch_dir }}/kubectl get namespace {{ kubevirt_namespace }}
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: kubevirt_health_namespace
+  changed_when: false
+  failed_when: false
+
+- name: Get KubeVirt pods
+  command: >
+    {{ download_arch_dir }}/kubectl -n {{ kubevirt_namespace }} get pods -o wide
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: kubevirt_health_pods
+  changed_when: false
+  failed_when: false
+
+- name: Get KubeVirt CR
+  command: >
+    {{ download_arch_dir }}/kubectl -n {{ kubevirt_namespace }} get kubevirt -o wide
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: kubevirt_health_cr
+  changed_when: false
+  failed_when: false
+
+- name: Get KubeVirt CRDs
+  shell: |
+    {{ download_arch_dir }}/kubectl get crd \
+      --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig | grep -i kubevirt || true
+  args:
+    executable: /bin/bash
+  register: kubevirt_health_crds
+  changed_when: false
+
+- name: Get KubeVirt API services
+  shell: |
+    {{ download_arch_dir }}/kubectl get apiservices \
+      --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig | grep -i kubevirt || true
+  args:
+    executable: /bin/bash
+  register: kubevirt_health_apiservices
+  changed_when: false
+
+- name: Print KubeVirt health report
+  debug:
+    msg:
+      - "===== Namespace ====="
+      - "{{ kubevirt_health_namespace.stdout_lines | default([]) }}"
+      - "===== Pods ====="
+      - "{{ kubevirt_health_pods.stdout_lines | default([]) }}"
+      - "===== KubeVirt CR ====="
+      - "{{ kubevirt_health_cr.stdout_lines | default([]) }}"
+      - "===== CRDs ====="
+      - "{{ kubevirt_health_crds.stdout_lines | default([]) }}"
+      - "===== APIService ====="
+      - "{{ kubevirt_health_apiservices.stdout_lines | default([]) }}"
+
+- name: Assert KubeVirt namespace exists
+  assert:
+    that:
+      - kubevirt_health_namespace.rc == 0
+    fail_msg: "KubeVirt namespace {{ kubevirt_namespace }} not found."
+    success_msg: "KubeVirt namespace exists."
+
+- name: Assert KubeVirt CR is present
+  assert:
+    that:
+      - kubevirt_health_cr.rc == 0
+    fail_msg: "KubeVirt CR not found in namespace {{ kubevirt_namespace }}."
+    success_msg: "KubeVirt CR exists."
+
+- name: Assert KubeVirt CRDs exist
+  assert:
+    that:
+      - kubevirt_health_crds.stdout | length > 0
+    fail_msg: "KubeVirt CRDs not found."
+    success_msg: "KubeVirt CRDs exist."
