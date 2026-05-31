@@ -1,0 +1,12 @@
+---
+# 0064-install-kubevirt.yml
+# Optional KubeVirt virtualization installer.
+# KubeVirt is disabled by default and must be enabled explicitly.
+
+- import_playbook: 0063-kubevirt-preflight.yml
+
+- name: install kubevirt
+  hosts: localhost
+  gather_facts: no
+  roles:
+    - kubevirt
