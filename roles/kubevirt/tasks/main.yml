@@ -1,0 +1,100 @@
+---
+# Optional KubeVirt installer role.
+# Supports remote URL manifests and local offline manifests.
+
+- name: Validate KubeVirt is enabled
+  assert:
+    that:
+      - kubevirt_enabled | default(false) | bool
+    fail_msg: "KubeVirt is disabled."
+
+- name: Install KubeVirt from remote manifests
+  block:
+    - name: Validate remote manifest URLs
+      assert:
+        that:
+          - kubevirt_operator_url | length > 0
+          - kubevirt_cr_url | length > 0
+        fail_msg: "kubevirt_operator_url and kubevirt_cr_url must be set when kubevirt_manifest_source=remote."
+
+    - name: Apply KubeVirt operator manifest from remote URL
+      command: >
+        {{ download_arch_dir }}/kubectl apply -f {{ kubevirt_operator_url }}
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+      register: kubevirt_operator_apply
+      changed_when: false
+
+    - name: Apply KubeVirt CR manifest from remote URL
+      command: >
+        {{ download_arch_dir }}/kubectl apply -f {{ kubevirt_cr_url }}
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+      register: kubevirt_cr_apply
+      changed_when: false
+  when: kubevirt_manifest_source == 'remote'
+
+- name: Install KubeVirt from local manifests
+  block:
+    - name: Check local KubeVirt operator manifest
+      stat:
+        path: "{{ kubevirt_local_manifest_dir }}/kubevirt-operator.yaml"
+      register: kubevirt_local_operator_manifest
+
+    - name: Check local KubeVirt CR manifest
+      stat:
+        path: "{{ kubevirt_local_manifest_dir }}/kubevirt-cr.yaml"
+      register: kubevirt_local_cr_manifest
+
+    - name: Assert local KubeVirt manifests exist
+      assert:
+        that:
+          - kubevirt_local_operator_manifest.stat.exists
+          - kubevirt_local_cr_manifest.stat.exists
+        fail_msg: "Local KubeVirt manifests are required under {{ kubevirt_local_manifest_dir }}."
+
+    - name: Apply local KubeVirt operator manifest
+      command: >
+        {{ download_arch_dir }}/kubectl apply -f {{ kubevirt_local_manifest_dir }}/kubevirt-operator.yaml
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+      register: kubevirt_local_operator_apply
+      changed_when: false
+
+    - name: Apply local KubeVirt CR manifest
+      command: >
+        {{ download_arch_dir }}/kubectl apply -f {{ kubevirt_local_manifest_dir }}/kubevirt-cr.yaml
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+      register: kubevirt_local_cr_apply
+      changed_when: false
+  when: kubevirt_manifest_source == 'local'
+
+- name: Wait for KubeVirt namespace
+  command: >
+    {{ download_arch_dir }}/kubectl get namespace {{ kubevirt_namespace }}
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: kubevirt_namespace_check
+  changed_when: false
+  retries: 20
+  delay: 5
+  until: kubevirt_namespace_check.rc == 0
+  when: kubevirt_wait_ready | default(true) | bool
+
+- name: Wait for KubeVirt pods to be ready
+  command: >
+    {{ download_arch_dir }}/kubectl -n {{ kubevirt_namespace }} wait pod
+    --for=condition=Ready --all --timeout=300s
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: kubevirt_pods_ready
+  changed_when: false
+  failed_when: false
+  when: kubevirt_wait_ready | default(true) | bool
+
+- name: Print KubeVirt pod status
+  command: >
+    {{ download_arch_dir }}/kubectl -n {{ kubevirt_namespace }} get pods -o wide
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: kubevirt_pods_status
+  changed_when: false
+  failed_when: false
+
+- name: Output KubeVirt status
+  debug:
+    var: kubevirt_pods_status.stdout_lines
