@@ -1,0 +1,178 @@
+---
+# KubeVirt DataVolume/PVC-backed VM smoke test.
+# Validates CDI + CSI + KubeVirt integration.
+# Disabled by default and only runs when explicitly enabled.
+
+- name: Validate DataVolume smoke test gate
+  assert:
+    that:
+      - kubevirt_enabled | default(false) | bool
+      - kubevirt_enable_cdi | default(false) | bool
+      - kubevirt_enable_datavolume_smoke_test | default(false) | bool
+    fail_msg: "DataVolume smoke test requires kubevirt_enabled=true, kubevirt_enable_cdi=true and kubevirt_enable_datavolume_smoke_test=true."
+
+- name: Resolve DataVolume storage class
+  set_fact:
+    resolved_kubevirt_datavolume_storage_class: >-
+      {{ kubevirt_datavolume_storage_class
+         if kubevirt_datavolume_storage_class | default('') | length > 0
+         else kubevirt_default_storage_class }}
+
+- name: Assert DataVolume storage class is configured
+  assert:
+    that:
+      - resolved_kubevirt_datavolume_storage_class | length > 0
+    fail_msg: "Set kubevirt_datavolume_storage_class or kubevirt_default_storage_class before running DataVolume smoke test."
+
+- name: Assert DataVolume source URL is configured
+  assert:
+    that:
+      - kubevirt_datavolume_source_url | default('') | length > 0
+    fail_msg: "Set kubevirt_datavolume_source_url to a VM image URL before running DataVolume smoke test."
+
+- name: Check CDI DataVolume CRD exists
+  command: >
+    {{ download_arch_dir }}/kubectl get crd datavolumes.cdi.kubevirt.io
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: datavolume_crd_check
+  changed_when: false
+
+- name: Check StorageClass exists
+  command: >
+    {{ download_arch_dir }}/kubectl get sc {{ resolved_kubevirt_datavolume_storage_class }}
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: datavolume_sc_check
+  changed_when: false
+
+- name: Create DataVolume smoke test namespace
+  command: >
+    {{ download_arch_dir }}/kubectl create namespace {{ kubevirt_datavolume_test_namespace }}
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: datavolume_namespace_create
+  changed_when: "'created' in datavolume_namespace_create.stdout"
+  failed_when: false
+
+- name: Apply DataVolume and PVC-backed VM manifests
+  shell: |
+    cat <<'EOF' | {{ download_arch_dir }}/kubectl apply -f - \
+      --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+    apiVersion: cdi.kubevirt.io/v1beta1
+    kind: DataVolume
+    metadata:
+      name: {{ kubevirt_datavolume_name }}
+      namespace: {{ kubevirt_datavolume_test_namespace }}
+      labels:
+        app.kubernetes.io/name: kubevirt-datavolume-smoke-test
+    spec:
+      source:
+        http:
+          url: {{ kubevirt_datavolume_source_url }}
+      pvc:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: {{ kubevirt_datavolume_size }}
+        storageClassName: {{ resolved_kubevirt_datavolume_storage_class }}
+    ---
+    apiVersion: kubevirt.io/v1
+    kind: VirtualMachine
+    metadata:
+      name: {{ kubevirt_datavolume_test_vm_name }}
+      namespace: {{ kubevirt_datavolume_test_namespace }}
+      labels:
+        app.kubernetes.io/name: kubevirt-datavolume-smoke-test
+    spec:
+      running: true
+      template:
+        metadata:
+          labels:
+            kubevirt.io/domain: {{ kubevirt_datavolume_test_vm_name }}
+        spec:
+          domain:
+            devices:
+              disks:
+                - name: rootdisk
+                  disk:
+                    bus: virtio
+                - name: cloudinitdisk
+                  disk:
+                    bus: virtio
+            resources:
+              requests:
+                memory: {{ kubevirt_smoke_test_memory }}
+          volumes:
+            - name: rootdisk
+              dataVolume:
+                name: {{ kubevirt_datavolume_name }}
+            - name: cloudinitdisk
+              cloudInitNoCloud:
+                userData: |
+                  #cloud-config
+                  password: kubevirt
+                  chpasswd: { expire: False }
+    EOF
+  args:
+    executable: /bin/bash
+  register: datavolume_vm_apply
+  changed_when: false
+
+- name: Wait for DataVolume import to succeed
+  command: >
+    {{ download_arch_dir }}/kubectl -n {{ kubevirt_datavolume_test_namespace }}
+    wait datavolume/{{ kubevirt_datavolume_name }} --for=condition=Ready --timeout={{ kubevirt_datavolume_wait_timeout }}
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: datavolume_ready
+  changed_when: false
+  failed_when: false
+
+- name: Wait for DataVolume VMI Ready
+  command: >
+    {{ download_arch_dir }}/kubectl -n {{ kubevirt_datavolume_test_namespace }}
+    wait vmi/{{ kubevirt_datavolume_test_vm_name }} --for=condition=Ready --timeout={{ kubevirt_smoke_test_wait_timeout }}
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: datavolume_vmi_ready
+  changed_when: false
+  failed_when: false
+
+- name: Get DataVolume smoke test status
+  shell: |
+    set -euo pipefail
+    {{ download_arch_dir }}/kubectl -n {{ kubevirt_datavolume_test_namespace }} get datavolume,pvc,vm,vmi,pod -o wide \
+      --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  args:
+    executable: /bin/bash
+  register: datavolume_status
+  changed_when: false
+  failed_when: false
+
+- name: Print DataVolume smoke test status
+  debug:
+    msg:
+      - "===== KubeVirt DataVolume smoke test status ====="
+      - "{{ datavolume_status.stdout_lines | default([]) }}"
+      - "datavolume_ready_rc={{ datavolume_ready.rc }}"
+      - "vmi_ready_rc={{ datavolume_vmi_ready.rc }}"
+
+- name: Assert DataVolume and VMI are Ready
+  assert:
+    that:
+      - datavolume_ready.rc == 0
+      - datavolume_vmi_ready.rc == 0
+    fail_msg: "DataVolume smoke test failed. Check CDI importer pod, PVC, and virt-launcher events."
+    success_msg: "DataVolume smoke test passed. CDI + CSI + KubeVirt workflow is functional."
+
+- name: Cleanup DataVolume smoke test VM
+  command: >
+    {{ download_arch_dir }}/kubectl -n {{ kubevirt_datavolume_test_namespace }}
+    delete vm {{ kubevirt_datavolume_test_vm_name }} --ignore-not-found=true
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  changed_when: false
+  when: kubevirt_datavolume_cleanup | default(true) | bool
+
+- name: Cleanup DataVolume smoke test namespace
+  command: >
+    {{ download_arch_dir }}/kubectl delete namespace {{ kubevirt_datavolume_test_namespace }} --ignore-not-found=true
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  changed_when: false
+  when: kubevirt_datavolume_cleanup | default(true) | bool
