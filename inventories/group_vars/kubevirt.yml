@@ -35,3 +35,15 @@ kubevirt_smoke_test_image: quay.io/kubevirt/cirros-container-disk-demo:latest
 kubevirt_smoke_test_memory: 256Mi
 kubevirt_smoke_test_cleanup: true
 kubevirt_smoke_test_wait_timeout: 180s
+
+# DataVolume smoke test is disabled by default.
+# It validates CDI + CSI + PVC-backed VM workflow.
+kubevirt_enable_datavolume_smoke_test: false
+kubevirt_datavolume_test_namespace: kubevirt-datavolume-test
+kubevirt_datavolume_test_vm_name: testvm-datavolume
+kubevirt_datavolume_name: testdv-cirros
+kubevirt_datavolume_size: 1Gi
+kubevirt_datavolume_storage_class: ""
+kubevirt_datavolume_source_url: ""
+kubevirt_datavolume_wait_timeout: 600s
+kubevirt_datavolume_cleanup: true
