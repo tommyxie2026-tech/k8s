@@ -34,6 +34,8 @@ COMMON_PLAYBOOKS=(
   0063-storage-pvc-validate.yml
   0063-kubevirt-preflight.yml
   0064-install-kubevirt.yml
+  0065-kubevirt-health-check.yml
+  0066-kubevirt-smoke-test.yml
   0090-stop-services.yml
   0091-reset-node-runtime.yml
 )
@@ -71,6 +73,8 @@ case "${MODE}" in
       0063-storage-pvc-validate.yml
       0063-kubevirt-preflight.yml
       0064-install-kubevirt.yml
+      0065-kubevirt-health-check.yml
+      0066-kubevirt-smoke-test.yml
       0050-single-to-ha.yml
     )
     ;;
