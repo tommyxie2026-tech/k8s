@@ -1,0 +1,9 @@
+---
+# 0069-install-virtctl.yml
+# Optional virtctl client installer for KubeVirt operations.
+
+- name: install virtctl client
+  hosts: localhost
+  gather_facts: no
+  roles:
+    - kubevirt_virtctl
