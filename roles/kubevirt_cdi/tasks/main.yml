@@ -1,0 +1,100 @@
+---
+# Optional KubeVirt CDI installer role.
+# CDI enables DataVolume, image import/upload and PVC-backed VM workflows.
+
+- name: Validate KubeVirt and CDI are enabled
+  assert:
+    that:
+      - kubevirt_enabled | default(false) | bool
+      - kubevirt_enable_cdi | default(false) | bool
+    fail_msg: "CDI installation requires kubevirt_enabled=true and kubevirt_enable_cdi=true."
+    success_msg: "KubeVirt CDI installation is enabled."
+
+- name: Install CDI from remote manifests
+  block:
+    - name: Validate remote CDI manifest URLs
+      assert:
+        that:
+          - kubevirt_cdi_operator_url | length > 0
+          - kubevirt_cdi_cr_url | length > 0
+        fail_msg: "kubevirt_cdi_operator_url and kubevirt_cdi_cr_url must be set when kubevirt_manifest_source=remote."
+
+    - name: Apply CDI operator manifest from remote URL
+      command: >
+        {{ download_arch_dir }}/kubectl apply -f {{ kubevirt_cdi_operator_url }}
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+      register: cdi_operator_apply
+      changed_when: false
+
+    - name: Apply CDI CR manifest from remote URL
+      command: >
+        {{ download_arch_dir }}/kubectl apply -f {{ kubevirt_cdi_cr_url }}
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+      register: cdi_cr_apply
+      changed_when: false
+  when: kubevirt_manifest_source == 'remote'
+
+- name: Install CDI from local manifests
+  block:
+    - name: Check local CDI operator manifest
+      stat:
+        path: "{{ kubevirt_local_manifest_dir }}/cdi-operator.yaml"
+      register: cdi_local_operator_manifest
+
+    - name: Check local CDI CR manifest
+      stat:
+        path: "{{ kubevirt_local_manifest_dir }}/cdi-cr.yaml"
+      register: cdi_local_cr_manifest
+
+    - name: Assert local CDI manifests exist
+      assert:
+        that:
+          - cdi_local_operator_manifest.stat.exists
+          - cdi_local_cr_manifest.stat.exists
+        fail_msg: "Local CDI manifests are required under {{ kubevirt_local_manifest_dir }}."
+
+    - name: Apply local CDI operator manifest
+      command: >
+        {{ download_arch_dir }}/kubectl apply -f {{ kubevirt_local_manifest_dir }}/cdi-operator.yaml
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+      register: cdi_local_operator_apply
+      changed_when: false
+
+    - name: Apply local CDI CR manifest
+      command: >
+        {{ download_arch_dir }}/kubectl apply -f {{ kubevirt_local_manifest_dir }}/cdi-cr.yaml
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+      register: cdi_local_cr_apply
+      changed_when: false
+  when: kubevirt_manifest_source == 'local'
+
+- name: Wait for CDI namespace
+  command: >
+    {{ download_arch_dir }}/kubectl get namespace {{ kubevirt_cdi_namespace }}
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: cdi_namespace_check
+  changed_when: false
+  retries: 20
+  delay: 5
+  until: cdi_namespace_check.rc == 0
+
+- name: Wait for CDI pods to be ready
+  command: >
+    {{ download_arch_dir }}/kubectl -n {{ kubevirt_cdi_namespace }} wait pod
+    --for=condition=Ready --all --timeout=300s
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: cdi_pods_ready
+  changed_when: false
+  failed_when: false
+
+- name: Print CDI pod status
+  command: >
+    {{ download_arch_dir }}/kubectl -n {{ kubevirt_cdi_namespace }} get pods -o wide
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: cdi_pods_status
+  changed_when: false
+  failed_when: false
+
+- name: Output CDI status
+  debug:
+    var: cdi_pods_status.stdout_lines
