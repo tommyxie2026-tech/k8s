@@ -1,0 +1,59 @@
+---
+# Optional virtctl installer.
+# virtctl is a client-side utility for KubeVirt VM operations.
+
+- name: Validate virtctl installation is enabled
+  assert:
+    that:
+      - kubevirt_enabled | default(false) | bool
+      - kubevirt_install_virtctl | default(false) | bool
+      - kubevirt_virtctl_source in ['remote', 'local']
+    fail_msg: "virtctl installation requires kubevirt_enabled=true, kubevirt_install_virtctl=true, and kubevirt_virtctl_source=remote|local."
+
+- name: Install virtctl from remote URL
+  block:
+    - name: Validate virtctl remote URL
+      assert:
+        that:
+          - kubevirt_virtctl_url | length > 0
+        fail_msg: "kubevirt_virtctl_url must be set when kubevirt_virtctl_source=remote."
+
+    - name: Download virtctl
+      get_url:
+        url: "{{ kubevirt_virtctl_url }}"
+        dest: "{{ kubevirt_virtctl_install_path }}"
+        mode: '0755'
+      become: true
+  when: kubevirt_virtctl_source == 'remote'
+
+- name: Install virtctl from local file
+  block:
+    - name: Check local virtctl binary
+      stat:
+        path: "{{ kubevirt_virtctl_local_path }}"
+      register: virtctl_local_binary
+      delegate_to: localhost
+
+    - name: Assert local virtctl exists
+      assert:
+        that:
+          - virtctl_local_binary.stat.exists
+        fail_msg: "Local virtctl binary not found: {{ kubevirt_virtctl_local_path }}"
+
+    - name: Copy local virtctl to install path
+      copy:
+        src: "{{ kubevirt_virtctl_local_path }}"
+        dest: "{{ kubevirt_virtctl_install_path }}"
+        mode: '0755'
+      become: true
+  when: kubevirt_virtctl_source == 'local'
+
+- name: Verify virtctl installation
+  command: "{{ kubevirt_virtctl_install_path }} version --client"
+  register: virtctl_version
+  changed_when: false
+  failed_when: false
+
+- name: Output virtctl version
+  debug:
+    var: virtctl_version.stdout_lines
