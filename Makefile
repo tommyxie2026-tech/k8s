@@ -1,4 +1,4 @@
-.PHONY: syntax-check syntax-check-ha syntax-check-single syntax-check-single-to-ha storage-preflight install-csi install-storageclass storage-health-check storage-migration-check storage-pvc-validate preflight-container deploy-container deploy-container-offline deploy-single deploy-single-offline deploy-ha deploy-ha-offline migrate-single-to-ha-preflight migrate-single-to-ha-backup migrate-single-to-ha-etcd-preflight migrate-single-to-ha-expand-etcd migrate-single-to-ha-renew-apiserver-cert migrate-single-to-ha-expand-control-plane migrate-single-to-ha-enable-ha-lb migrate-single-to-ha-switch-kubeconfigs-to-vip migrate-single-to-ha cleanup-container smoke-test
+.PHONY: syntax-check syntax-check-ha syntax-check-single syntax-check-single-to-ha storage-preflight install-csi install-storageclass storage-health-check storage-migration-check storage-pvc-validate kubevirt-preflight install-kubevirt preflight-container deploy-container deploy-container-offline deploy-single deploy-single-offline deploy-ha deploy-ha-offline migrate-single-to-ha-preflight migrate-single-to-ha-backup migrate-single-to-ha-etcd-preflight migrate-single-to-ha-expand-etcd migrate-single-to-ha-renew-apiserver-cert migrate-single-to-ha-expand-control-plane migrate-single-to-ha-enable-ha-lb migrate-single-to-ha-switch-kubeconfigs-to-vip migrate-single-to-ha cleanup-container smoke-test
 
 INVENTORY ?= inventories/hosts-container.yml
 KUBECONFIG_PATH ?= $(HOME)/.kube/config
@@ -38,6 +38,12 @@ storage-migration-check:
 
 storage-pvc-validate:
 	ansible-playbook -i $(INVENTORY) 0063-storage-pvc-validate.yml
+
+kubevirt-preflight:
+	ansible-playbook -i $(INVENTORY) 0063-kubevirt-preflight.yml
+
+install-kubevirt:
+	ansible-playbook -i $(INVENTORY) 0064-install-kubevirt.yml
 
 preflight-container:
 	ansible-playbook -i inventories/hosts-container.yml 0000-container-infra.yml
