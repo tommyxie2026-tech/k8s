@@ -1,0 +1,10 @@
+---
+# 0063-kubevirt-preflight.yml
+# Optional KubeVirt virtualization preflight checks.
+# Read-only: does not install or modify KubeVirt resources.
+
+- name: kubevirt preflight - node and cluster checks
+  hosts: kube_node
+  gather_facts: no
+  roles:
+    - kubevirt_preflight
