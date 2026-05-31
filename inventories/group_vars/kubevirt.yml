@@ -1,0 +1,29 @@
+---
+# Optional KubeVirt virtualization extension defaults.
+# KubeVirt is disabled by default and must be explicitly enabled.
+
+kubevirt_enabled: false
+kubevirt_namespace: kubevirt
+kubevirt_version: v1.3.1
+
+# remote: install from configured release manifest URLs
+# local: install from files/kubevirt/
+kubevirt_manifest_source: remote
+kubevirt_local_manifest_dir: files/kubevirt
+
+kubevirt_operator_url: ""
+kubevirt_cr_url: ""
+
+kubevirt_require_kvm: true
+kubevirt_enable_emulation: false
+kubevirt_wait_ready: true
+kubevirt_validate_storage: true
+kubevirt_default_storage_class: ""
+
+kubevirt_enable_cdi: false
+kubevirt_cdi_namespace: cdi
+kubevirt_cdi_version: v1.60.0
+kubevirt_cdi_operator_url: ""
+kubevirt_cdi_cr_url: ""
+
+kubevirt_enable_vm_smoke_test: false
