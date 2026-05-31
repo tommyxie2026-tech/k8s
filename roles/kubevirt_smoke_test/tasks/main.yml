@@ -1,0 +1,125 @@
+---
+# KubeVirt ephemeral VM smoke test.
+# Creates a containerDisk-based VM only when explicitly enabled.
+# No persistent PVC will be created.
+
+- name: Validate smoke test gate
+  assert:
+    that:
+      - kubevirt_enabled | default(false) | bool
+      - kubevirt_enable_vm_smoke_test | default(false) | bool
+    fail_msg: "KubeVirt smoke test is disabled. Set kubevirt_enabled=true and kubevirt_enable_vm_smoke_test=true."
+
+- name: Create smoke test namespace
+  command: >
+    {{ download_arch_dir }}/kubectl create namespace {{ kubevirt_smoke_test_namespace }}
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: kubevirt_smoke_namespace_create
+  changed_when: "'created' in kubevirt_smoke_namespace_create.stdout"
+  failed_when: false
+
+- name: Apply ephemeral VM manifest
+  shell: |
+    cat <<'EOF' | {{ download_arch_dir }}/kubectl apply -f - \
+      --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+    apiVersion: kubevirt.io/v1
+    kind: VirtualMachine
+    metadata:
+      name: {{ kubevirt_smoke_test_vm_name }}
+      namespace: {{ kubevirt_smoke_test_namespace }}
+      labels:
+        app.kubernetes.io/name: kubevirt-smoke-test
+    spec:
+      running: true
+      template:
+        metadata:
+          labels:
+            kubevirt.io/domain: {{ kubevirt_smoke_test_vm_name }}
+        spec:
+          domain:
+            devices:
+              disks:
+                - name: containerdisk
+                  disk:
+                    bus: virtio
+                - name: cloudinitdisk
+                  disk:
+                    bus: virtio
+            resources:
+              requests:
+                memory: {{ kubevirt_smoke_test_memory }}
+          volumes:
+            - name: containerdisk
+              containerDisk:
+                image: {{ kubevirt_smoke_test_image }}
+            - name: cloudinitdisk
+              cloudInitNoCloud:
+                userData: |
+                  #cloud-config
+                  password: kubevirt
+                  chpasswd: { expire: False }
+    EOF
+  args:
+    executable: /bin/bash
+  register: kubevirt_smoke_vm_apply
+  changed_when: false
+
+- name: Wait for VMI to be created
+  command: >
+    {{ download_arch_dir }}/kubectl -n {{ kubevirt_smoke_test_namespace }}
+    get vmi {{ kubevirt_smoke_test_vm_name }}
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: kubevirt_smoke_vmi_get
+  changed_when: false
+  retries: 30
+  delay: 5
+  until: kubevirt_smoke_vmi_get.rc == 0
+
+- name: Wait for VMI Ready condition
+  command: >
+    {{ download_arch_dir }}/kubectl -n {{ kubevirt_smoke_test_namespace }}
+    wait vmi/{{ kubevirt_smoke_test_vm_name }} --for=condition=Ready --timeout={{ kubevirt_smoke_test_wait_timeout }}
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: kubevirt_smoke_vmi_ready
+  changed_when: false
+  failed_when: false
+
+- name: Get smoke test VM/VMI status
+  shell: |
+    set -euo pipefail
+    {{ download_arch_dir }}/kubectl -n {{ kubevirt_smoke_test_namespace }} get vm,vmi,pod -o wide \
+      --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  args:
+    executable: /bin/bash
+  register: kubevirt_smoke_status
+  changed_when: false
+  failed_when: false
+
+- name: Print smoke test status
+  debug:
+    msg:
+      - "===== KubeVirt smoke test status ====="
+      - "{{ kubevirt_smoke_status.stdout_lines | default([]) }}"
+      - "ready_rc={{ kubevirt_smoke_vmi_ready.rc }}"
+
+- name: Assert smoke test VMI is ready
+  assert:
+    that:
+      - kubevirt_smoke_vmi_ready.rc == 0
+    fail_msg: "KubeVirt smoke test VM did not become Ready. Check virt-launcher pod events."
+    success_msg: "KubeVirt smoke test VM is Ready."
+
+- name: Cleanup smoke test VM
+  command: >
+    {{ download_arch_dir }}/kubectl -n {{ kubevirt_smoke_test_namespace }}
+    delete vm {{ kubevirt_smoke_test_vm_name }} --ignore-not-found=true
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  changed_when: false
+  when: kubevirt_smoke_test_cleanup | default(true) | bool
+
+- name: Cleanup smoke test namespace
+  command: >
+    {{ download_arch_dir }}/kubectl delete namespace {{ kubevirt_smoke_test_namespace }} --ignore-not-found=true
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  changed_when: false
+  when: kubevirt_smoke_test_cleanup | default(true) | bool
