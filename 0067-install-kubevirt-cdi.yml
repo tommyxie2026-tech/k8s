@@ -1,0 +1,10 @@
+---
+# 0067-install-kubevirt-cdi.yml
+# Optional KubeVirt CDI installer.
+# CDI is disabled by default and must be explicitly enabled.
+
+- name: install kubevirt CDI
+  hosts: localhost
+  gather_facts: no
+  roles:
+    - kubevirt_cdi
