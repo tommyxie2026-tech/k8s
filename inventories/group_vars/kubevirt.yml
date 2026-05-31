@@ -26,6 +26,14 @@ kubevirt_cdi_version: v1.60.0
 kubevirt_cdi_operator_url: ""
 kubevirt_cdi_cr_url: ""
 
+# virtctl is optional. Remote mode requires kubevirt_virtctl_url to be set explicitly.
+kubevirt_install_virtctl: false
+kubevirt_virtctl_source: remote
+# remote | local
+kubevirt_virtctl_url: ""
+kubevirt_virtctl_local_path: "files/kubevirt/virtctl"
+kubevirt_virtctl_install_path: /usr/local/bin/virtctl
+
 # Smoke test is disabled by default.
 # It uses an ephemeral containerDisk VM and does not create persistent PVCs.
 kubevirt_enable_vm_smoke_test: false
