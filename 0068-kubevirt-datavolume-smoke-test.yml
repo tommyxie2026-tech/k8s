@@ -1,0 +1,10 @@
+---
+# 0068-kubevirt-datavolume-smoke-test.yml
+# Optional KubeVirt DataVolume/PVC-backed VM smoke test.
+# Disabled by default. Validates CDI + CSI + KubeVirt workflow only when explicitly enabled.
+
+- name: kubevirt DataVolume smoke test
+  hosts: localhost
+  gather_facts: no
+  roles:
+    - kubevirt_datavolume_smoke_test
