@@ -1,4 +1,4 @@
-.PHONY: syntax-check syntax-check-ha syntax-check-single syntax-check-single-to-ha storage-preflight install-csi install-storageclass storage-health-check storage-migration-check storage-pvc-validate kubevirt-preflight install-kubevirt kubevirt-health-check kubevirt-smoke-test install-kubevirt-cdi kubevirt-datavolume-smoke-test install-virtctl kubevirt-vm-ops preflight-container deploy-container deploy-container-offline deploy-single deploy-single-offline deploy-ha deploy-ha-offline migrate-single-to-ha-preflight migrate-single-to-ha-backup migrate-single-to-ha-etcd-preflight migrate-single-to-ha-expand-etcd migrate-single-to-ha-renew-apiserver-cert migrate-single-to-ha-expand-control-plane migrate-single-to-ha-enable-ha-lb migrate-single-to-ha-switch-kubeconfigs-to-vip migrate-single-to-ha cleanup-container smoke-test
+.PHONY: syntax-check syntax-check-ha syntax-check-single syntax-check-single-to-ha storage-preflight install-csi install-storageclass storage-health-check storage-migration-check storage-pvc-validate kubevirt-preflight install-kubevirt kubevirt-health-check kubevirt-smoke-test install-kubevirt-cdi kubevirt-datavolume-smoke-test install-virtctl kubevirt-vm-ops node-pool-labels node-pool-health-check preflight-container deploy-container deploy-container-offline deploy-single deploy-single-offline deploy-ha deploy-ha-offline migrate-single-to-ha-preflight migrate-single-to-ha-backup migrate-single-to-ha-etcd-preflight migrate-single-to-ha-expand-etcd migrate-single-to-ha-renew-apiserver-cert migrate-single-to-ha-expand-control-plane migrate-single-to-ha-enable-ha-lb migrate-single-to-ha-switch-kubeconfigs-to-vip migrate-single-to-ha cleanup-container smoke-test
 
 INVENTORY ?= inventories/hosts-container.yml
 KUBECONFIG_PATH ?= $(HOME)/.kube/config
@@ -13,6 +13,10 @@ KUBEVIRT_ENABLED ?= true
 KUBEVIRT_VM_ACTION ?= status
 KUBEVIRT_VM_NAMESPACE ?= default
 KUBEVIRT_VM_NAME ?=
+
+NODE_POOLS_ENABLED ?= true
+NODE_POOLS_APPLY_CONFIRM ?= false
+NODE_POOLS_MANAGE_TAINTS ?= false
 
 syntax-check:
 	INVENTORY=$(INVENTORY) bash scripts/syntax-check.sh
@@ -71,6 +75,16 @@ kubevirt-vm-ops:
 		-e kubevirt_vm_action=$(KUBEVIRT_VM_ACTION) \
 		-e kubevirt_vm_namespace=$(KUBEVIRT_VM_NAMESPACE) \
 		-e kubevirt_vm_name=$(KUBEVIRT_VM_NAME)
+
+node-pool-labels:
+	ansible-playbook -i $(INVENTORY) 0071-node-pool-labels.yml \
+		-e node_pools_enabled=$(NODE_POOLS_ENABLED) \
+		-e node_pools_apply_confirm=$(NODE_POOLS_APPLY_CONFIRM) \
+		-e node_pools_manage_taints=$(NODE_POOLS_MANAGE_TAINTS)
+
+node-pool-health-check:
+	ansible-playbook -i $(INVENTORY) 0072-node-pool-health-check.yml \
+		-e node_pools_enabled=$(NODE_POOLS_ENABLED)
 
 preflight-container:
 	ansible-playbook -i inventories/hosts-container.yml 0000-container-infra.yml
