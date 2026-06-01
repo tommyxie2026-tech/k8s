@@ -4,7 +4,9 @@
 
 kubevirt_enabled: false
 kubevirt_namespace: kubevirt
-kubevirt_version: v1.3.1
+kubevirt_version: v1.8.2
+kubevirt_version_policy: pinned
+kubevirt_allow_prerelease: false
 
 # remote: install from configured release manifest URLs
 # local: install from files/kubevirt/
