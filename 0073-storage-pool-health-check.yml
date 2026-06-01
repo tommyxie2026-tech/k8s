@@ -1,0 +1,8 @@
+---
+# Read-only storage pool health check.
+
+- name: storage pool health check
+  hosts: localhost
+  gather_facts: no
+  roles:
+    - storage_pool_health
