@@ -1,0 +1,77 @@
+---
+# Node pool label/taint management role.
+# Safe by default: it prints the plan unless node_pools_apply_confirm=true.
+
+- name: Validate node pools are enabled
+  assert:
+    that:
+      - node_pools_enabled | default(false) | bool
+    fail_msg: "node_pools_enabled=false. Enable node pools before running this role."
+    success_msg: "node pools are enabled."
+
+- name: Print node pool assignment plan
+  debug:
+    msg:
+      - "node_pools_apply_confirm={{ node_pools_apply_confirm | default(false) }}"
+      - "node_pools_manage_taints={{ node_pools_manage_taints | default(false) }}"
+      - "node_pool_assignments={{ node_pool_assignments | default({}) }}"
+
+- name: Assert assignments are provided when applying
+  assert:
+    that:
+      - node_pool_assignments | default({}) | length > 0
+    fail_msg: "node_pool_assignments is empty. Refusing to apply node pool labels."
+  when: node_pools_apply_confirm | default(false) | bool
+
+- name: Show planned node labels
+  debug:
+    msg:
+      - "node={{ item.key }}"
+      - "pool={{ item.value }}"
+      - "label={{ node_pools[item.value].label_key }}={{ node_pools[item.value].label_value }}"
+      - "workload_type={{ node_pools[item.value].workload_type }}"
+  loop: "{{ node_pool_assignments | default({}) | dict2items }}"
+
+- name: Apply node pool label
+  command: >
+    {{ download_arch_dir }}/kubectl label node {{ item.key }}
+    {{ node_pools[item.value].label_key }}={{ node_pools[item.value].label_value }}
+    k8s.io/workload-type={{ node_pools[item.value].workload_type }}
+    --overwrite
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: node_pool_label_apply
+  changed_when: false
+  loop: "{{ node_pool_assignments | default({}) | dict2items }}"
+  when: node_pools_apply_confirm | default(false) | bool
+
+- name: Show planned node taints
+  debug:
+    msg:
+      - "node={{ item.key }}"
+      - "pool={{ item.value }}"
+      - "taints={{ node_pools[item.value].taints | default([]) }}"
+  loop: "{{ node_pool_assignments | default({}) | dict2items }}"
+  when: node_pools_manage_taints | default(false) | bool
+
+- name: Apply node pool taints
+  command: >
+    {{ download_arch_dir }}/kubectl taint node {{ item.0.key }} {{ item.1 }} --overwrite
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: node_pool_taint_apply
+  changed_when: false
+  loop: "{{ node_pool_assignments | default({}) | dict2items | subelements('value.taints', skip_missing=True) }}"
+  when:
+    - node_pools_apply_confirm | default(false) | bool
+    - node_pools_manage_taints | default(false) | bool
+
+- name: Get nodes after node pool operation
+  command: >
+    {{ download_arch_dir }}/kubectl get nodes --show-labels
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: node_pool_nodes_output
+  changed_when: false
+  failed_when: false
+
+- name: Print node pool label status
+  debug:
+    var: node_pool_nodes_output.stdout_lines
