@@ -23,6 +23,13 @@
     fail_msg: "node_pool_assignments is empty. Refusing to apply node pool labels."
   when: node_pools_apply_confirm | default(false) | bool
 
+- name: Validate assigned pools exist
+  assert:
+    that:
+      - item.value in node_pools
+    fail_msg: "Node {{ item.key }} references undefined node pool {{ item.value }}."
+  loop: "{{ node_pool_assignments | default({}) | dict2items }}"
+
 - name: Show planned node labels
   debug:
     msg:
@@ -59,10 +66,47 @@
     --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
   register: node_pool_taint_apply
   changed_when: false
-  loop: "{{ node_pool_assignments | default({}) | dict2items | subelements('value.taints', skip_missing=True) }}"
+  loop: "{{ query('subelements', node_pool_assignments | default({}) | dict2items, 'taints', {'skip_missing': True}) }}"
+  vars:
+    node_pool_assignments_with_taints: >-
+      {{ node_pool_assignments | default({}) | dict2items }}
   when:
     - node_pools_apply_confirm | default(false) | bool
     - node_pools_manage_taints | default(false) | bool
+    - false
+
+- name: Apply node pool taints safely
+  command: >
+    {{ download_arch_dir }}/kubectl taint node {{ item.0.key }} {{ item.1 }} --overwrite
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: node_pool_taint_apply_safe
+  changed_when: false
+  loop: "{{ query('subelements', node_pool_taint_items, 'taints', {'skip_missing': True}) }}"
+  vars:
+    node_pool_taint_items: >-
+      {{ node_pool_assignments | default({}) | dict2items
+         | map('combine', {'taints': []}) | list }}
+  when:
+    - node_pools_apply_confirm | default(false) | bool
+    - node_pools_manage_taints | default(false) | bool
+    - false
+
+- name: Apply taints per node pool assignment
+  shell: |
+    set -euo pipefail
+    {% for taint in node_pools[item.value].taints | default([]) %}
+    {{ download_arch_dir }}/kubectl taint node {{ item.key }} {{ taint }} --overwrite \
+      --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+    {% endfor %}
+  args:
+    executable: /bin/bash
+  register: node_pool_taint_apply_loop
+  changed_when: false
+  loop: "{{ node_pool_assignments | default({}) | dict2items }}"
+  when:
+    - node_pools_apply_confirm | default(false) | bool
+    - node_pools_manage_taints | default(false) | bool
+    - node_pools[item.value].taints | default([]) | length > 0
 
 - name: Get nodes after node pool operation
   command: >
