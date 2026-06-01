@@ -20,6 +20,36 @@
   run_once: true
   delegate_to: localhost
 
+- name: Validate KubeVirt version policy
+  assert:
+    that:
+      - kubevirt_version is defined
+      - kubevirt_version | length > 0
+      - kubevirt_version_policy | default('pinned') == 'pinned'
+      - kubevirt_version != 'latest'
+    fail_msg: "KubeVirt must use a pinned version. latest is not allowed."
+    success_msg: "KubeVirt version policy is pinned."
+  run_once: true
+  delegate_to: localhost
+
+- name: Validate KubeVirt prerelease policy
+  assert:
+    that:
+      - kubevirt_allow_prerelease | default(false) | bool or not (kubevirt_version is search('alpha|beta|rc|pre'))
+    fail_msg: "KubeVirt prerelease versions are blocked by default. Set kubevirt_allow_prerelease=true only for non-production validation."
+    success_msg: "KubeVirt prerelease policy passed."
+  run_once: true
+  delegate_to: localhost
+
+- name: Print KubeVirt version plan
+  debug:
+    msg:
+      - "kubevirt_version={{ kubevirt_version }}"
+      - "kubevirt_version_policy={{ kubevirt_version_policy | default('pinned') }}"
+      - "kubevirt_allow_prerelease={{ kubevirt_allow_prerelease | default(false) }}"
+  run_once: true
+  delegate_to: localhost
+
 - name: Check kubectl exists
   stat:
     path: "{{ download_arch_dir }}/kubectl"
