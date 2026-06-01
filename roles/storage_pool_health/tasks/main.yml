@@ -1,0 +1,178 @@
+---
+# Storage pool health check role.
+# Read-only checks for local-lvm, nfs-csi, iscsi-san and rook-ceph style storage pools.
+
+- name: Validate storage pools are enabled
+  assert:
+    that:
+      - storage_pools_enabled | default(false) | bool
+    fail_msg: "storage_pools_enabled=false. Enable storage pools before running health checks."
+    success_msg: "storage pools are enabled."
+
+- name: Print configured storage pools
+  debug:
+    msg:
+      - "storage_pools={{ storage_pools | default({}) }}"
+
+- name: Kubernetes StorageClass inventory
+  command: >
+    {{ download_arch_dir }}/kubectl get sc -o wide
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: storage_pool_sc_output
+  changed_when: false
+  failed_when: false
+
+- name: Kubernetes PVC inventory
+  command: >
+    {{ download_arch_dir }}/kubectl get pvc -A
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: storage_pool_pvc_output
+  changed_when: false
+  failed_when: false
+
+- name: Kubernetes PV inventory
+  command: >
+    {{ download_arch_dir }}/kubectl get pv
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: storage_pool_pv_output
+  changed_when: false
+  failed_when: false
+
+- name: Kubernetes VolumeAttachment inventory
+  command: >
+    {{ download_arch_dir }}/kubectl get volumeattachment
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: storage_pool_va_output
+  changed_when: false
+  failed_when: false
+
+- name: Print Kubernetes storage resource report
+  debug:
+    msg:
+      - "===== StorageClass ====="
+      - "{{ storage_pool_sc_output.stdout_lines | default([]) }}"
+      - "===== PVC ====="
+      - "{{ storage_pool_pvc_output.stdout_lines | default([]) }}"
+      - "===== PV ====="
+      - "{{ storage_pool_pv_output.stdout_lines | default([]) }}"
+      - "===== VolumeAttachment ====="
+      - "{{ storage_pool_va_output.stdout_lines | default([]) }}"
+
+- name: Check local-lvm tools and VG
+  shell: |
+    set +e
+    echo "===== pvs ====="
+    pvs
+    echo "===== vgs ====="
+    vgs
+    echo "===== lvs ====="
+    lvs
+  args:
+    executable: /bin/bash
+  register: storage_pool_local_lvm_output
+  changed_when: false
+  failed_when: false
+  when: "'local-lvm' in (storage_pools | default({})).keys()"
+  become: true
+
+- name: Print local-lvm health
+  debug:
+    msg:
+      - "===== local-lvm ====="
+      - "{{ storage_pool_local_lvm_output.stdout_lines | default([]) }}"
+  when: "'local-lvm' in (storage_pools | default({})).keys()"
+
+- name: Check NFS server export when configured
+  shell: |
+    set +e
+    echo "nfs_server={{ nfs_server | default('') }}"
+    echo "nfs_path={{ nfs_path | default('') }}"
+    if command -v showmount >/dev/null 2>&1 && [ -n "{{ nfs_server | default('') }}" ]; then
+      showmount -e {{ nfs_server }}
+    else
+      echo "showmount unavailable or nfs_server empty"
+    fi
+  args:
+    executable: /bin/bash
+  register: storage_pool_nfs_output
+  changed_when: false
+  failed_when: false
+  when: "'nfs-csi' in (storage_pools | default({})).keys()"
+
+- name: Print NFS health
+  debug:
+    msg:
+      - "===== nfs-csi ====="
+      - "{{ storage_pool_nfs_output.stdout_lines | default([]) }}"
+  when: "'nfs-csi' in (storage_pools | default({})).keys()"
+
+- name: Check iSCSI and multipath status
+  shell: |
+    set +e
+    echo "===== iscsi session ====="
+    if command -v iscsiadm >/dev/null 2>&1; then
+      iscsiadm -m session
+    else
+      echo "iscsiadm not found"
+    fi
+    echo "===== multipath ====="
+    if command -v multipath >/dev/null 2>&1; then
+      multipath -ll
+    else
+      echo "multipath not found"
+    fi
+  args:
+    executable: /bin/bash
+  register: storage_pool_iscsi_output
+  changed_when: false
+  failed_when: false
+  when: "'iscsi-san' in (storage_pools | default({})).keys()"
+  become: true
+
+- name: Print iSCSI health
+  debug:
+    msg:
+      - "===== iscsi-san ====="
+      - "{{ storage_pool_iscsi_output.stdout_lines | default([]) }}"
+  when: "'iscsi-san' in (storage_pools | default({})).keys()"
+
+- name: Check Rook Ceph status through toolbox if available
+  shell: |
+    set +e
+    echo "===== rook-ceph pods ====="
+    {{ download_arch_dir }}/kubectl -n rook-ceph get pods -o wide \
+      --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+    echo "===== ceph status ====="
+    TOOL_POD=$({{ download_arch_dir }}/kubectl -n rook-ceph get pods \
+      --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig \
+      -l app=rook-ceph-tools -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+    if [ -n "$TOOL_POD" ]; then
+      {{ download_arch_dir }}/kubectl -n rook-ceph exec "$TOOL_POD" \
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig -- ceph status
+      {{ download_arch_dir }}/kubectl -n rook-ceph exec "$TOOL_POD" \
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig -- ceph osd status
+      {{ download_arch_dir }}/kubectl -n rook-ceph exec "$TOOL_POD" \
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig -- ceph df
+    else
+      echo "rook-ceph toolbox not found; skipped ceph CLI checks"
+    fi
+  args:
+    executable: /bin/bash
+  register: storage_pool_ceph_output
+  changed_when: false
+  failed_when: false
+  when: "'ceph-rbd' in (storage_pools | default({})).keys() or 'cephfs' in (storage_pools | default({})).keys() or 'ceph-rbd-retain' in (storage_pools | default({})).keys()"
+
+- name: Print Ceph health
+  debug:
+    msg:
+      - "===== rook-ceph ====="
+      - "{{ storage_pool_ceph_output.stdout_lines | default([]) }}"
+  when: "'ceph-rbd' in (storage_pools | default({})).keys() or 'cephfs' in (storage_pools | default({})).keys() or 'ceph-rbd-retain' in (storage_pools | default({})).keys()"
+
+- name: Print unified storage pool report summary
+  debug:
+    msg:
+      - "Storage pool health check completed."
+      - "This role is read-only and does not modify StorageClass/PVC/PV."
+      - "Review StorageClass/PVC/PV/VolumeAttachment plus backend-specific sections above."
