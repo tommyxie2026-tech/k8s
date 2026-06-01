@@ -1,0 +1,55 @@
+---
+# Node pool health check role.
+# Read-only validation for node labels, taints and KVM capability.
+
+- name: Validate node pools are enabled
+  assert:
+    that:
+      - node_pools_enabled | default(false) | bool
+    fail_msg: "node_pools_enabled=false. Enable node pools before running health checks."
+
+- name: Get node pool labels
+  command: >
+    {{ download_arch_dir }}/kubectl get nodes
+    -L k8s.io/node-pool,k8s.io/workload-type,kubevirt.io/kvm
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: node_pool_health_nodes
+  changed_when: false
+  failed_when: false
+
+- name: Get node taints
+  command: >
+    {{ download_arch_dir }}/kubectl describe nodes
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: node_pool_health_describe
+  changed_when: false
+  failed_when: false
+
+- name: Print node pool health report
+  debug:
+    msg:
+      - "===== Node Pool Labels ====="
+      - "{{ node_pool_health_nodes.stdout_lines | default([]) }}"
+      - "===== Node Describe / Taints ====="
+      - "{{ node_pool_health_describe.stdout_lines | default([]) }}"
+
+- name: Check /dev/kvm on VM pool inventory nodes
+  stat:
+    path: /dev/kvm
+  register: vm_pool_kvm_stat
+  delegate_to: "{{ item.key }}"
+  loop: "{{ node_pool_assignments | default({}) | dict2items }}"
+  when:
+    - item.value == 'vm'
+    - node_pools.vm.require_kvm | default(true) | bool
+
+- name: Assert VM pool nodes have /dev/kvm
+  assert:
+    that:
+      - item.stat.exists
+    fail_msg: "VM pool node {{ item.item.key }} does not have /dev/kvm."
+    success_msg: "VM pool node {{ item.item.key }} has /dev/kvm."
+  loop: "{{ vm_pool_kvm_stat.results | default([]) }}"
+  when:
+    - item is defined
+    - item.skipped is not defined or not item.skipped
