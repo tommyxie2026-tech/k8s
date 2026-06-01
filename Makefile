@@ -1,4 +1,4 @@
-.PHONY: syntax-check syntax-check-ha syntax-check-single syntax-check-single-to-ha storage-preflight install-csi install-storageclass storage-health-check storage-migration-check storage-pvc-validate kubevirt-preflight install-kubevirt kubevirt-health-check kubevirt-smoke-test install-kubevirt-cdi kubevirt-datavolume-smoke-test install-virtctl kubevirt-vm-ops node-pool-labels node-pool-health-check preflight-container deploy-container deploy-container-offline deploy-single deploy-single-offline deploy-ha deploy-ha-offline migrate-single-to-ha-preflight migrate-single-to-ha-backup migrate-single-to-ha-etcd-preflight migrate-single-to-ha-expand-etcd migrate-single-to-ha-renew-apiserver-cert migrate-single-to-ha-expand-control-plane migrate-single-to-ha-enable-ha-lb migrate-single-to-ha-switch-kubeconfigs-to-vip migrate-single-to-ha cleanup-container smoke-test
+.PHONY: syntax-check syntax-check-ha syntax-check-single syntax-check-single-to-ha storage-preflight install-csi install-storageclass storage-health-check storage-migration-check storage-pvc-validate kubevirt-preflight install-kubevirt kubevirt-health-check kubevirt-smoke-test install-kubevirt-cdi kubevirt-datavolume-smoke-test install-virtctl kubevirt-vm-ops node-pool-labels node-pool-health-check storage-pool-health-check scheduling-policy-check preflight-container deploy-container deploy-container-offline deploy-single deploy-single-offline deploy-ha deploy-ha-offline migrate-single-to-ha-preflight migrate-single-to-ha-backup migrate-single-to-ha-etcd-preflight migrate-single-to-ha-expand-etcd migrate-single-to-ha-renew-apiserver-cert migrate-single-to-ha-expand-control-plane migrate-single-to-ha-enable-ha-lb migrate-single-to-ha-switch-kubeconfigs-to-vip migrate-single-to-ha cleanup-container smoke-test
 
 INVENTORY ?= inventories/hosts-container.yml
 KUBECONFIG_PATH ?= $(HOME)/.kube/config
@@ -17,6 +17,7 @@ KUBEVIRT_VM_NAME ?=
 NODE_POOLS_ENABLED ?= true
 NODE_POOLS_APPLY_CONFIRM ?= false
 NODE_POOLS_MANAGE_TAINTS ?= false
+STORAGE_POOLS_ENABLED ?= true
 
 syntax-check:
 	INVENTORY=$(INVENTORY) bash scripts/syntax-check.sh
@@ -84,6 +85,14 @@ node-pool-labels:
 
 node-pool-health-check:
 	ansible-playbook -i $(INVENTORY) 0072-node-pool-health-check.yml \
+		-e node_pools_enabled=$(NODE_POOLS_ENABLED)
+
+storage-pool-health-check:
+	ansible-playbook -i $(INVENTORY) 0073-storage-pool-health-check.yml \
+		-e storage_pools_enabled=$(STORAGE_POOLS_ENABLED)
+
+scheduling-policy-check:
+	ansible-playbook -i $(INVENTORY) 0074-scheduling-policy-check.yml \
 		-e node_pools_enabled=$(NODE_POOLS_ENABLED)
 
 preflight-container:
