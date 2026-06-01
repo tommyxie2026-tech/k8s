@@ -1,0 +1,93 @@
+---
+# Node pool and storage pool defaults.
+# This file defines the desired scheduling/resource-pool model.
+# By default, no node labels or taints are changed unless explicitly confirmed.
+
+node_pools_enabled: false
+node_pools_apply_confirm: false
+node_pools_manage_taints: false
+
+node_pools:
+  control-plane:
+    label_key: k8s.io/node-pool
+    label_value: control-plane
+    workload_type: control-plane
+    taints: []
+  compute:
+    label_key: k8s.io/node-pool
+    label_value: compute
+    workload_type: container
+    taints:
+      - dedicated=compute:NoSchedule
+  vm:
+    label_key: k8s.io/node-pool
+    label_value: vm
+    workload_type: vm
+    require_kvm: true
+    taints:
+      - dedicated=vm:NoSchedule
+  storage:
+    label_key: k8s.io/node-pool
+    label_value: storage
+    workload_type: storage
+    taints:
+      - dedicated=storage:NoSchedule
+  gpu:
+    label_key: k8s.io/node-pool
+    label_value: gpu
+    workload_type: ai
+    taints:
+      - dedicated=gpu:NoSchedule
+  edge:
+    label_key: k8s.io/node-pool
+    label_value: edge
+    workload_type: edge
+    taints:
+      - dedicated=edge:NoSchedule
+
+# Map inventory hostnames to logical node pools.
+# Example:
+# node_pool_assignments:
+#   k8s-master-01: control-plane
+#   k8s-worker-01: compute
+#   k8s-vm-01: vm
+node_pool_assignments: {}
+
+storage_pools_enabled: false
+storage_pools:
+  local-lvm:
+    type: block
+    storage_class: local-lvm
+    access_mode: RWO
+    recommended_node_pool: edge
+    ha: false
+  nfs-csi:
+    type: file
+    storage_class: nfs-csi
+    access_mode: RWX
+    recommended_node_pool: compute
+    ha: false
+  iscsi-san:
+    type: block
+    storage_class: iscsi-san
+    access_mode: RWO
+    recommended_node_pool: vm
+    ha: true
+  ceph-rbd:
+    type: block
+    storage_class: ceph-rbd
+    access_mode: RWO
+    recommended_node_pool: vm
+    ha: true
+  ceph-rbd-retain:
+    type: block
+    storage_class: ceph-rbd-retain
+    access_mode: RWO
+    recommended_node_pool: vm
+    ha: true
+  cephfs:
+    type: file
+    storage_class: cephfs
+    access_mode: RWX
+    recommended_node_pool: compute
+    ha: true
