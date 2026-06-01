@@ -1,0 +1,8 @@
+---
+# Read-only scheduling governance check.
+
+- name: scheduling policy governance
+  hosts: localhost
+  gather_facts: no
+  roles:
+    - scheduling_policy_check
