@@ -1,0 +1,187 @@
+---
+# Scheduling policy check role.
+# Read-only governance checks for node pools, KubeVirt VM placement and workload scheduling metadata.
+
+- name: Validate node pools are enabled
+  assert:
+    that:
+      - node_pools_enabled | default(false) | bool
+    fail_msg: "node_pools_enabled=false. Enable node pools before running scheduling policy checks."
+    success_msg: "node pools are enabled."
+
+- name: Print scheduling governance baseline
+  debug:
+    msg:
+      - "Expected node pools: {{ node_pools.keys() | list }}"
+      - "Storage pools: {{ storage_pools.keys() | list if storage_pools is defined else [] }}"
+      - "This role is read-only and does not mutate workloads or nodes."
+
+- name: Get node pool labels
+  command: >
+    {{ download_arch_dir }}/kubectl get nodes
+    -L k8s.io/node-pool,k8s.io/workload-type,kubevirt.io/kvm
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: scheduling_nodes
+  changed_when: false
+  failed_when: false
+
+- name: Get all pods with placement
+  command: >
+    {{ download_arch_dir }}/kubectl get pods -A -o wide
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: scheduling_pods
+  changed_when: false
+  failed_when: false
+
+- name: Get all StatefulSets
+  command: >
+    {{ download_arch_dir }}/kubectl get sts -A -o wide
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: scheduling_sts
+  changed_when: false
+  failed_when: false
+
+- name: Get all DaemonSets
+  command: >
+    {{ download_arch_dir }}/kubectl get ds -A -o wide
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: scheduling_ds
+  changed_when: false
+  failed_when: false
+
+- name: Get all PVCs
+  command: >
+    {{ download_arch_dir }}/kubectl get pvc -A
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: scheduling_pvcs
+  changed_when: false
+  failed_when: false
+
+- name: Get KubeVirt VMs when CRD exists
+  shell: |
+    set +e
+    {{ download_arch_dir }}/kubectl get crd virtualmachines.kubevirt.io \
+      --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig >/dev/null 2>&1
+    if [ "$?" -eq 0 ]; then
+      {{ download_arch_dir }}/kubectl get vm -A -o wide \
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+    else
+      echo "KubeVirt VM CRD not found; skipped VM scan"
+    fi
+  args:
+    executable: /bin/bash
+  register: scheduling_vms
+  changed_when: false
+  failed_when: false
+
+- name: Get KubeVirt VMIs when CRD exists
+  shell: |
+    set +e
+    {{ download_arch_dir }}/kubectl get crd virtualmachineinstances.kubevirt.io \
+      --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig >/dev/null 2>&1
+    if [ "$?" -eq 0 ]; then
+      {{ download_arch_dir }}/kubectl get vmi -A -o wide \
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+    else
+      echo "KubeVirt VMI CRD not found; skipped VMI scan"
+    fi
+  args:
+    executable: /bin/bash
+  register: scheduling_vmis
+  changed_when: false
+  failed_when: false
+
+- name: Collect workload scheduling specs
+  shell: |
+    set +e
+    echo "===== Pods missing nodeSelector/affinity/tolerations quick scan ====="
+    {{ download_arch_dir }}/kubectl get pods -A -o json \
+      --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig \
+      | python3 - <<'PY'
+import json, sys
+try:
+    data=json.load(sys.stdin)
+except Exception as e:
+    print(f"unable to parse pods json: {e}")
+    sys.exit(0)
+for item in data.get('items', []):
+    spec=item.get('spec', {})
+    ns=item.get('metadata', {}).get('namespace')
+    name=item.get('metadata', {}).get('name')
+    node=spec.get('nodeName', '')
+    selector=spec.get('nodeSelector') or {}
+    affinity=spec.get('affinity') or {}
+    tolerations=spec.get('tolerations') or []
+    if not selector and not affinity and not tolerations:
+        print(f"WARN pod {ns}/{name} on {node}: no nodeSelector/affinity/tolerations")
+PY
+  args:
+    executable: /bin/bash
+  register: scheduling_pod_policy_scan
+  changed_when: false
+  failed_when: false
+
+- name: Scan KubeVirt VMI placement against VM pool labels
+  shell: |
+    set +e
+    {{ download_arch_dir }}/kubectl get crd virtualmachineinstances.kubevirt.io \
+      --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig >/dev/null 2>&1 || {
+        echo "KubeVirt VMI CRD not found; skipped VM pool placement check"
+        exit 0
+      }
+    echo "===== VMI placement check ====="
+    {{ download_arch_dir }}/kubectl get vmi -A -o json \
+      --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig \
+      | python3 - <<'PY'
+import json, subprocess, sys, os
+try:
+    data=json.load(sys.stdin)
+except Exception as e:
+    print(f"unable to parse vmi json: {e}")
+    sys.exit(0)
+for item in data.get('items', []):
+    ns=item.get('metadata', {}).get('namespace')
+    name=item.get('metadata', {}).get('name')
+    node=item.get('status', {}).get('nodeName') or item.get('spec', {}).get('nodeName') or ''
+    if not node:
+        print(f"WARN vmi {ns}/{name}: node not assigned")
+        continue
+    print(f"INFO vmi {ns}/{name}: node={node}; verify node has k8s.io/node-pool=vm and kubevirt.io/kvm=true")
+PY
+  args:
+    executable: /bin/bash
+  register: scheduling_vmi_policy_scan
+  changed_when: false
+  failed_when: false
+
+- name: Print scheduling governance report
+  debug:
+    msg:
+      - "===== Nodes / Pools ====="
+      - "{{ scheduling_nodes.stdout_lines | default([]) }}"
+      - "===== Pods ====="
+      - "{{ scheduling_pods.stdout_lines | default([]) }}"
+      - "===== StatefulSets ====="
+      - "{{ scheduling_sts.stdout_lines | default([]) }}"
+      - "===== DaemonSets ====="
+      - "{{ scheduling_ds.stdout_lines | default([]) }}"
+      - "===== PVCs ====="
+      - "{{ scheduling_pvcs.stdout_lines | default([]) }}"
+      - "===== KubeVirt VMs ====="
+      - "{{ scheduling_vms.stdout_lines | default([]) }}"
+      - "===== KubeVirt VMIs ====="
+      - "{{ scheduling_vmis.stdout_lines | default([]) }}"
+      - "===== Pod Policy Scan ====="
+      - "{{ scheduling_pod_policy_scan.stdout_lines | default([]) }}"
+      - "===== VMI Policy Scan ====="
+      - "{{ scheduling_vmi_policy_scan.stdout_lines | default([]) }}"
+
+- name: Print scheduling policy recommendations
+  debug:
+    msg:
+      - "Recommended governance rules:"
+      - "1. VM workloads should run on nodes labeled k8s.io/node-pool=vm and kubevirt.io/kvm=true."
+      - "2. Rook/Ceph/storage workloads should run on k8s.io/node-pool=storage."
+      - "3. GPU workloads should run on k8s.io/node-pool=gpu."
+      - "4. Stateful workloads should explicitly set storageClassName."
+      - "5. Production workloads should avoid relying on default StorageClass implicitly."
