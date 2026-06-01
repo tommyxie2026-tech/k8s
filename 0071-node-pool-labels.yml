@@ -1,0 +1,8 @@
+---
+# Safe node pool planning and optional apply.
+
+- name: node pool labels and taints
+  hosts: localhost
+  gather_facts: no
+  roles:
+    - node_pools
