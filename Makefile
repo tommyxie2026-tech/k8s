@@ -9,6 +9,11 @@ CONFIRM_EXPAND_CONTROL_PLANE ?= false
 CONFIRM_ENABLE_HA_LB ?= false
 CONFIRM_SWITCH_KUBECONFIGS_TO_VIP ?= false
 
+KUBEVIRT_ENABLED ?= true
+KUBEVIRT_VM_ACTION ?= status
+KUBEVIRT_VM_NAMESPACE ?= default
+KUBEVIRT_VM_NAME ?=
+
 syntax-check:
 	INVENTORY=$(INVENTORY) bash scripts/syntax-check.sh
 
@@ -61,7 +66,11 @@ install-virtctl:
 	ansible-playbook -i $(INVENTORY) 0069-install-virtctl.yml
 
 kubevirt-vm-ops:
-	ansible-playbook -i $(INVENTORY) 0070-kubevirt-vm-ops.yml
+	ansible-playbook -i $(INVENTORY) 0070-kubevirt-vm-ops.yml \
+		-e kubevirt_enabled=$(KUBEVIRT_ENABLED) \
+		-e kubevirt_vm_action=$(KUBEVIRT_VM_ACTION) \
+		-e kubevirt_vm_namespace=$(KUBEVIRT_VM_NAMESPACE) \
+		-e kubevirt_vm_name=$(KUBEVIRT_VM_NAME)
 
 preflight-container:
 	ansible-playbook -i inventories/hosts-container.yml 0000-container-infra.yml
