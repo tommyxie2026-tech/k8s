@@ -1,4 +1,4 @@
-.PHONY: syntax-check syntax-check-ha syntax-check-single syntax-check-single-to-ha storage-preflight install-csi install-storageclass storage-health-check storage-migration-check storage-pvc-validate kubevirt-preflight install-kubevirt kubevirt-health-check kubevirt-smoke-test install-kubevirt-cdi kubevirt-datavolume-smoke-test install-virtctl preflight-container deploy-container deploy-container-offline deploy-single deploy-single-offline deploy-ha deploy-ha-offline migrate-single-to-ha-preflight migrate-single-to-ha-backup migrate-single-to-ha-etcd-preflight migrate-single-to-ha-expand-etcd migrate-single-to-ha-renew-apiserver-cert migrate-single-to-ha-expand-control-plane migrate-single-to-ha-enable-ha-lb migrate-single-to-ha-switch-kubeconfigs-to-vip migrate-single-to-ha cleanup-container smoke-test
+.PHONY: syntax-check syntax-check-ha syntax-check-single syntax-check-single-to-ha storage-preflight install-csi install-storageclass storage-health-check storage-migration-check storage-pvc-validate kubevirt-preflight install-kubevirt kubevirt-health-check kubevirt-smoke-test install-kubevirt-cdi kubevirt-datavolume-smoke-test install-virtctl kubevirt-vm-ops preflight-container deploy-container deploy-container-offline deploy-single deploy-single-offline deploy-ha deploy-ha-offline migrate-single-to-ha-preflight migrate-single-to-ha-backup migrate-single-to-ha-etcd-preflight migrate-single-to-ha-expand-etcd migrate-single-to-ha-renew-apiserver-cert migrate-single-to-ha-expand-control-plane migrate-single-to-ha-enable-ha-lb migrate-single-to-ha-switch-kubeconfigs-to-vip migrate-single-to-ha cleanup-container smoke-test
 
 INVENTORY ?= inventories/hosts-container.yml
 KUBECONFIG_PATH ?= $(HOME)/.kube/config
@@ -59,6 +59,9 @@ kubevirt-datavolume-smoke-test:
 
 install-virtctl:
 	ansible-playbook -i $(INVENTORY) 0069-install-virtctl.yml
+
+kubevirt-vm-ops:
+	ansible-playbook -i $(INVENTORY) 0070-kubevirt-vm-ops.yml
 
 preflight-container:
 	ansible-playbook -i inventories/hosts-container.yml 0000-container-infra.yml
