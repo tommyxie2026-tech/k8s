@@ -1,0 +1,272 @@
+---
+# Capacity planning baseline role.
+# Read-only inventory of cluster capacity, requests and storage usage.
+# Trend prediction requires Prometheus integration in a later phase.
+
+- name: Print capacity planning mode
+  debug:
+    msg:
+      - "Capacity planning baseline mode."
+      - "This role is read-only and does not modify cluster resources."
+      - "Trend forecast requires Prometheus metrics integration in a later phase."
+
+- name: Get nodes json
+  command: >
+    {{ download_arch_dir }}/kubectl get nodes -o json
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: capacity_nodes_json
+  changed_when: false
+  failed_when: false
+
+- name: Get pods json
+  command: >
+    {{ download_arch_dir }}/kubectl get pods -A -o json
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: capacity_pods_json
+  changed_when: false
+  failed_when: false
+
+- name: Get PVC json
+  command: >
+    {{ download_arch_dir }}/kubectl get pvc -A -o json
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: capacity_pvc_json
+  changed_when: false
+  failed_when: false
+
+- name: Get PV json
+  command: >
+    {{ download_arch_dir }}/kubectl get pv -o json
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: capacity_pv_json
+  changed_when: false
+  failed_when: false
+
+- name: Get VM json when KubeVirt exists
+  shell: |
+    set +e
+    {{ download_arch_dir }}/kubectl get crd virtualmachines.kubevirt.io \
+      --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig >/dev/null 2>&1
+    if [ "$?" -eq 0 ]; then
+      {{ download_arch_dir }}/kubectl get vm -A -o json \
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+    else
+      echo '{"items":[]}'
+    fi
+  args:
+    executable: /bin/bash
+  register: capacity_vm_json
+  changed_when: false
+  failed_when: false
+
+- name: Get VMI json when KubeVirt exists
+  shell: |
+    set +e
+    {{ download_arch_dir }}/kubectl get crd virtualmachineinstances.kubevirt.io \
+      --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig >/dev/null 2>&1
+    if [ "$?" -eq 0 ]; then
+      {{ download_arch_dir }}/kubectl get vmi -A -o json \
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+    else
+      echo '{"items":[]}'
+    fi
+  args:
+    executable: /bin/bash
+  register: capacity_vmi_json
+  changed_when: false
+  failed_when: false
+
+- name: Get Ceph usage if toolbox exists
+  shell: |
+    set +e
+    TOOL_POD=$({{ download_arch_dir }}/kubectl -n rook-ceph get pods \
+      --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig \
+      -l app=rook-ceph-tools -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+    if [ -n "$TOOL_POD" ]; then
+      {{ download_arch_dir }}/kubectl -n rook-ceph exec "$TOOL_POD" \
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig -- ceph df
+    else
+      echo "rook-ceph toolbox not found; skipped ceph capacity check"
+    fi
+  args:
+    executable: /bin/bash
+  register: capacity_ceph_output
+  changed_when: false
+  failed_when: false
+
+- name: Run capacity baseline analysis
+  shell: |
+    set +e
+    python3 - <<'PY'
+import json, re
+from collections import defaultdict
+
+nodes_raw = r'''{{ capacity_nodes_json.stdout | default('{"items":[]}') }}'''
+pods_raw = r'''{{ capacity_pods_json.stdout | default('{"items":[]}') }}'''
+pvc_raw = r'''{{ capacity_pvc_json.stdout | default('{"items":[]}') }}'''
+pv_raw = r'''{{ capacity_pv_json.stdout | default('{"items":[]}') }}'''
+vm_raw = r'''{{ capacity_vm_json.stdout | default('{"items":[]}') }}'''
+vmi_raw = r'''{{ capacity_vmi_json.stdout | default('{"items":[]}') }}'''
+
+def load(raw, name):
+    try:
+        return json.loads(raw)
+    except Exception as e:
+        print(f"ERROR unable to parse {name}: {e}")
+        return {"items": []}
+
+def cpu_to_m(cpu):
+    if cpu is None:
+        return 0
+    s = str(cpu)
+    if s.endswith('m'):
+        return int(float(s[:-1]))
+    return int(float(s) * 1000)
+
+def mem_to_mi(mem):
+    if mem is None:
+        return 0
+    s = str(mem)
+    units = {
+        'Ki': 1/1024,
+        'Mi': 1,
+        'Gi': 1024,
+        'Ti': 1024*1024,
+        'K': 1/1000/1024,
+        'M': 1/1.048576,
+        'G': 1000/1.048576,
+    }
+    for u, f in units.items():
+        if s.endswith(u):
+            return int(float(s[:-len(u)]) * f)
+    try:
+        return int(float(s) / 1024 / 1024)
+    except Exception:
+        return 0
+
+def storage_to_gi(v):
+    if v is None:
+        return 0
+    s = str(v)
+    units = {'Ki':1/1024/1024, 'Mi':1/1024, 'Gi':1, 'Ti':1024, 'Pi':1024*1024, 'K':1/1000/1000, 'M':1/1000, 'G':1, 'T':1000}
+    for u,f in units.items():
+        if s.endswith(u):
+            return float(s[:-len(u)]) * f
+    try:
+        return float(s) / 1024 / 1024 / 1024
+    except Exception:
+        return 0
+
+nodes = load(nodes_raw, 'nodes')
+pods = load(pods_raw, 'pods')
+pvcs = load(pvc_raw, 'pvc')
+pvs = load(pv_raw, 'pv')
+vms = load(vm_raw, 'vm')
+vmis = load(vmi_raw, 'vmi')
+
+print('===== Capacity Planning Baseline Report =====')
+
+node_count = len(nodes.get('items', []))
+alloc_cpu = 0
+alloc_mem = 0
+pool_summary = defaultdict(lambda: {'nodes':0, 'cpu_m':0, 'mem_mi':0})
+for n in nodes.get('items', []):
+    meta = n.get('metadata', {})
+    labels = meta.get('labels', {}) or {}
+    status = n.get('status', {})
+    alloc = status.get('allocatable', {})
+    cpu = cpu_to_m(alloc.get('cpu'))
+    mem = mem_to_mi(alloc.get('memory'))
+    alloc_cpu += cpu
+    alloc_mem += mem
+    pool = labels.get('k8s.io/node-pool', 'unassigned')
+    pool_summary[pool]['nodes'] += 1
+    pool_summary[pool]['cpu_m'] += cpu
+    pool_summary[pool]['mem_mi'] += mem
+print(f'INFO nodes={node_count}, allocatable_cpu={alloc_cpu}m, allocatable_memory={alloc_mem}Mi')
+for pool, v in sorted(pool_summary.items()):
+    print(f"INFO pool={pool}: nodes={v['nodes']}, cpu={v['cpu_m']}m, memory={v['mem_mi']}Mi")
+
+req_cpu = 0
+req_mem = 0
+pod_count = 0
+running_pods = 0
+for p in pods.get('items', []):
+    pod_count += 1
+    if p.get('status', {}).get('phase') == 'Running':
+        running_pods += 1
+    for c in p.get('spec', {}).get('containers', []):
+        req = c.get('resources', {}).get('requests', {}) or {}
+        req_cpu += cpu_to_m(req.get('cpu'))
+        req_mem += mem_to_mi(req.get('memory'))
+print(f'INFO pods={pod_count}, running_pods={running_pods}, requested_cpu={req_cpu}m, requested_memory={req_mem}Mi')
+if alloc_cpu:
+    print(f'INFO cpu_request_ratio={req_cpu/alloc_cpu:.2%}')
+if alloc_mem:
+    print(f'INFO memory_request_ratio={req_mem/alloc_mem:.2%}')
+if alloc_cpu and req_cpu/alloc_cpu > 0.7:
+    print('WARN CPU requests exceed 70% of allocatable capacity')
+if alloc_mem and req_mem/alloc_mem > 0.7:
+    print('WARN memory requests exceed 70% of allocatable capacity')
+
+pvc_count = len(pvcs.get('items', []))
+pvc_by_sc = defaultdict(float)
+pvc_phase = defaultdict(int)
+for pvc in pvcs.get('items', []):
+    spec = pvc.get('spec', {})
+    status = pvc.get('status', {})
+    sc = spec.get('storageClassName') or 'NO_STORAGE_CLASS'
+    req = spec.get('resources', {}).get('requests', {}).get('storage')
+    pvc_by_sc[sc] += storage_to_gi(req)
+    pvc_phase[status.get('phase', 'UNKNOWN')] += 1
+print(f'INFO pvc_count={pvc_count}, pvc_phases={dict(pvc_phase)}')
+for sc, size in sorted(pvc_by_sc.items()):
+    print(f'INFO pvc_requested_by_sc {sc}: {size:.2f}Gi')
+
+pv_count = len(pvs.get('items', []))
+pv_by_sc = defaultdict(float)
+pv_phase = defaultdict(int)
+for pv in pvs.get('items', []):
+    spec = pv.get('spec', {})
+    status = pv.get('status', {})
+    sc = spec.get('storageClassName') or 'NO_STORAGE_CLASS'
+    cap = spec.get('capacity', {}).get('storage')
+    pv_by_sc[sc] += storage_to_gi(cap)
+    pv_phase[status.get('phase', 'UNKNOWN')] += 1
+print(f'INFO pv_count={pv_count}, pv_phases={dict(pv_phase)}')
+for sc, size in sorted(pv_by_sc.items()):
+    print(f'INFO pv_capacity_by_sc {sc}: {size:.2f}Gi')
+
+vm_count = len(vms.get('items', []))
+vmi_count = len(vmis.get('items', []))
+print(f'INFO kubevirt_vm_count={vm_count}, kubevirt_vmi_count={vmi_count}')
+if vm_count > 0 and alloc_mem and req_mem/alloc_mem > 0.6:
+    print('WARN VM workloads exist and memory request ratio is already above 60%; reserve headroom for VM growth')
+
+print('===== Baseline Forecast Notes =====')
+print('INFO 30/90/180 day forecast requires historical metrics. Enable Prometheus integration in next phase.')
+print('INFO Current baseline can detect immediate pressure but cannot predict trend growth yet.')
+print('INFO Recommended thresholds: CPU requests <70%, memory requests <70%, storage used <75%, critical pools <80%.')
+PY
+  args:
+    executable: /bin/bash
+  register: capacity_baseline_report
+  changed_when: false
+  failed_when: false
+
+- name: Print capacity baseline report
+  debug:
+    var: capacity_baseline_report.stdout_lines
+
+- name: Print Ceph capacity report
+  debug:
+    msg:
+      - "===== Ceph Capacity ====="
+      - "{{ capacity_ceph_output.stdout_lines | default([]) }}"
+
+- name: Print capacity planning recommendations
+  debug:
+    msg:
+      - "Next phase: integrate Prometheus for historical 30/90/180 day forecasting."
+      - "Recommended metrics: kube_node_status_allocatable, kube_pod_container_resource_requests, kubelet_volume_stats_used_bytes, ceph_pool_stored, kubevirt_vmi_phase_count."
+      - "Capacity planning should be reviewed before enabling KubeVirt/CDI/DataVolume workloads in production."
