@@ -1,0 +1,8 @@
+---
+# Read-only StorageClass governance.
+
+- name: storageclass governance
+  hosts: localhost
+  gather_facts: no
+  roles:
+    - storageclass_governance
