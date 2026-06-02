@@ -1,0 +1,51 @@
+---
+# Independent observability defaults.
+# Observability is designed as an external plane by default.
+
+observability_enabled: false
+
+# external: monitoring stack runs outside the business cluster
+# hybrid: external stack + in-cluster lightweight agents/exporters
+# in_cluster: full stack in current cluster, only for PoC/test
+observability_mode: external
+
+# pull: external Prometheus scrapes targets from outside
+# remote_write: in-cluster agent pushes metrics to external endpoint
+observability_scrape_mode: pull
+
+observability_cluster_name: ops-monitoring
+observability_target_cluster_name: ""
+
+# External endpoints. Required depending on mode/scrape mode.
+observability_prometheus_endpoint: ""
+observability_remote_write_endpoint: ""
+observability_alertmanager_endpoint: ""
+observability_grafana_endpoint: ""
+
+# Installation switches. Keep disabled by default.
+observability_install_in_cluster_stack: false
+observability_install_agent: false
+observability_install_node_exporter: true
+observability_install_kube_state_metrics: true
+observability_install_blackbox_exporter: false
+
+# Security and connectivity.
+observability_require_tls: true
+observability_require_auth: true
+observability_network_check_enabled: true
+observability_timeout_seconds: 5
+
+# Target discovery switches.
+observability_collect_kubernetes: true
+observability_collect_etcd: true
+observability_collect_nodes: true
+observability_collect_csi: true
+observability_collect_kubevirt: true
+observability_collect_cdi: true
+observability_collect_ceph: true
+observability_collect_ha_lb: true
+
+# Future extensions.
+observability_rules_enabled: false
+observability_dashboards_enabled: false
+observability_slo_report_enabled: false
