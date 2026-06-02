@@ -1,0 +1,8 @@
+---
+# Read-only failure domain governance.
+
+- name: failure domain governance
+  hosts: localhost
+  gather_facts: no
+  roles:
+    - failure_domain_check
