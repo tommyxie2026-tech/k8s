@@ -1,0 +1,168 @@
+---
+# Cluster admission baseline role.
+# Read-only namespace governance checks for ResourceQuota, LimitRange, PodSecurity and NetworkPolicy.
+
+- name: Print admission baseline mode
+  debug:
+    msg:
+      - "Cluster admission baseline check."
+      - "This role is read-only and does not create or modify admission policies."
+      - "Checks: Namespace labels, ResourceQuota, LimitRange, NetworkPolicy, PodSecurity baseline."
+
+- name: Get namespaces json
+  command: >
+    {{ download_arch_dir }}/kubectl get ns -o json
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: admission_ns_json
+  changed_when: false
+  failed_when: false
+
+- name: Get ResourceQuotas json
+  command: >
+    {{ download_arch_dir }}/kubectl get resourcequota -A -o json
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: admission_rq_json
+  changed_when: false
+  failed_when: false
+
+- name: Get LimitRanges json
+  command: >
+    {{ download_arch_dir }}/kubectl get limitrange -A -o json
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: admission_lr_json
+  changed_when: false
+  failed_when: false
+
+- name: Get NetworkPolicies json
+  command: >
+    {{ download_arch_dir }}/kubectl get networkpolicy -A -o json
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: admission_np_json
+  changed_when: false
+  failed_when: false
+
+- name: Get Pods json
+  command: >
+    {{ download_arch_dir }}/kubectl get pods -A -o json
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: admission_pods_json
+  changed_when: false
+  failed_when: false
+
+- name: Run cluster admission baseline analysis
+  shell: |
+    set +e
+    python3 - <<'PY'
+import json
+from collections import defaultdict
+
+ns_raw = r'''{{ admission_ns_json.stdout | default('{"items":[]}') }}'''
+rq_raw = r'''{{ admission_rq_json.stdout | default('{"items":[]}') }}'''
+lr_raw = r'''{{ admission_lr_json.stdout | default('{"items":[]}') }}'''
+np_raw = r'''{{ admission_np_json.stdout | default('{"items":[]}') }}'''
+pods_raw = r'''{{ admission_pods_json.stdout | default('{"items":[]}') }}'''
+
+SYSTEM_NAMESPACES = {
+    'kube-system', 'kube-public', 'kube-node-lease',
+    'kubevirt', 'cdi', 'rook-ceph', 'local-path-storage',
+    'nfs-csi-system', 'topolvm-system'
+}
+
+def load(raw, name):
+    try:
+        return json.loads(raw)
+    except Exception as e:
+        print(f"ERROR unable to parse {name}: {e}")
+        return {"items": []}
+
+ns = load(ns_raw, 'namespaces')
+rq = load(rq_raw, 'resourcequotas')
+lr = load(lr_raw, 'limitranges')
+np = load(np_raw, 'networkpolicies')
+pods = load(pods_raw, 'pods')
+
+rq_by_ns = defaultdict(list)
+for i in rq.get('items', []):
+    rq_by_ns[i.get('metadata', {}).get('namespace')].append(i.get('metadata', {}).get('name'))
+
+lr_by_ns = defaultdict(list)
+for i in lr.get('items', []):
+    lr_by_ns[i.get('metadata', {}).get('namespace')].append(i.get('metadata', {}).get('name'))
+
+np_by_ns = defaultdict(list)
+for i in np.get('items', []):
+    np_by_ns[i.get('metadata', {}).get('namespace')].append(i.get('metadata', {}).get('name'))
+
+pods_by_ns = defaultdict(int)
+for p in pods.get('items', []):
+    pods_by_ns[p.get('metadata', {}).get('namespace')] += 1
+
+print('===== Cluster Admission Baseline Report =====')
+for item in sorted(ns.get('items', []), key=lambda x: x.get('metadata', {}).get('name', '')):
+    meta = item.get('metadata', {})
+    name = meta.get('name')
+    labels = meta.get('labels', {}) or {}
+    is_system = name in SYSTEM_NAMESPACES or name.startswith('kube-')
+    enforce = labels.get('pod-security.kubernetes.io/enforce')
+    audit = labels.get('pod-security.kubernetes.io/audit')
+    warn = labels.get('pod-security.kubernetes.io/warn')
+    rq_list = rq_by_ns.get(name, [])
+    lr_list = lr_by_ns.get(name, [])
+    np_list = np_by_ns.get(name, [])
+    pod_count = pods_by_ns.get(name, 0)
+
+    print(f"NS {name}: pods={pod_count}, system={is_system}, ResourceQuota={rq_list}, LimitRange={lr_list}, NetworkPolicy={np_list}, PSS(enforce={enforce}, audit={audit}, warn={warn})")
+
+    if is_system:
+        if not enforce and name not in {'kube-system'}:
+            print(f"INFO namespace {name}: system namespace without PodSecurity enforce label; verify add-on compatibility before enforcing")
+        continue
+
+    if not rq_list:
+        print(f"WARN namespace {name}: no ResourceQuota")
+    if not lr_list:
+        print(f"WARN namespace {name}: no LimitRange")
+    if not np_list:
+        print(f"WARN namespace {name}: no NetworkPolicy; traffic may be unrestricted")
+    if not enforce:
+        print(f"WARN namespace {name}: no pod-security.kubernetes.io/enforce label")
+    elif enforce not in {'restricted', 'baseline', 'privileged'}:
+        print(f"WARN namespace {name}: unknown PodSecurity enforce value {enforce}")
+    elif enforce == 'privileged':
+        print(f"WARN namespace {name}: PodSecurity enforce=privileged; avoid for production application namespaces")
+
+print('===== Pod Security Context Quick Scan =====')
+for p in pods.get('items', []):
+    meta = p.get('metadata', {})
+    spec = p.get('spec', {})
+    ns_name = meta.get('namespace')
+    pod_name = meta.get('name')
+    if ns_name in SYSTEM_NAMESPACES or ns_name.startswith('kube-'):
+        continue
+    pod_sc = spec.get('securityContext', {}) or {}
+    if not pod_sc:
+        print(f"INFO pod {ns_name}/{pod_name}: no pod-level securityContext")
+    for c in spec.get('containers', []):
+        cname = c.get('name')
+        sc = c.get('securityContext', {}) or {}
+        if sc.get('privileged') is True:
+            print(f"WARN pod {ns_name}/{pod_name} container={cname}: privileged=true")
+        if sc.get('allowPrivilegeEscalation') is not False:
+            print(f"INFO pod {ns_name}/{pod_name} container={cname}: allowPrivilegeEscalation not explicitly false")
+
+print('===== Recommendations =====')
+print('1. Production namespaces should have ResourceQuota and LimitRange.')
+print('2. Production namespaces should have NetworkPolicy baseline, preferably default-deny plus explicit allow rules.')
+print('3. Production namespaces should set pod-security.kubernetes.io/enforce=baseline or restricted.')
+print('4. Privileged workloads should be isolated into dedicated namespaces and node pools.')
+print('5. Admission baseline should be enforced before onboarding production VM/DataVolume/Stateful workloads.')
+PY
+  args:
+    executable: /bin/bash
+  register: admission_baseline_report
+  changed_when: false
+  failed_when: false
+
+- name: Print admission baseline report
+  debug:
+    var: admission_baseline_report.stdout_lines
