@@ -1,0 +1,191 @@
+---
+# StorageClass governance role.
+# Read-only checks for PVC/StorageClass usage and risk patterns.
+
+- name: Validate storage pools are enabled
+  assert:
+    that:
+      - storage_pools_enabled | default(false) | bool
+    fail_msg: "storage_pools_enabled=false. Enable storage pools before running StorageClass governance."
+    success_msg: "storage pools are enabled."
+
+- name: Print StorageClass governance baseline
+  debug:
+    msg:
+      - "storage_pools={{ storage_pools | default({}) }}"
+      - "This role is read-only and does not modify StorageClass/PVC/PV."
+
+- name: Get StorageClasses
+  command: >
+    {{ download_arch_dir }}/kubectl get sc -o json
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: sc_json
+  changed_when: false
+  failed_when: false
+
+- name: Get PVCs
+  command: >
+    {{ download_arch_dir }}/kubectl get pvc -A -o json
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: pvc_json
+  changed_when: false
+  failed_when: false
+
+- name: Get PVs
+  command: >
+    {{ download_arch_dir }}/kubectl get pv -o json
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: pv_json
+  changed_when: false
+  failed_when: false
+
+- name: Get DataVolumes when CDI exists
+  shell: |
+    set +e
+    {{ download_arch_dir }}/kubectl get crd datavolumes.cdi.kubevirt.io \
+      --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig >/dev/null 2>&1
+    if [ "$?" -eq 0 ]; then
+      {{ download_arch_dir }}/kubectl get datavolume -A -o json \
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+    else
+      echo '{"items":[]}'
+    fi
+  args:
+    executable: /bin/bash
+  register: dv_json
+  changed_when: false
+  failed_when: false
+
+- name: Run StorageClass governance scan
+  shell: |
+    set +e
+    python3 - <<'PY'
+import json, sys
+
+sc_raw = r'''{{ sc_json.stdout | default('{"items":[]}') }}'''
+pvc_raw = r'''{{ pvc_json.stdout | default('{"items":[]}') }}'''
+pv_raw = r'''{{ pv_json.stdout | default('{"items":[]}') }}'''
+dv_raw = r'''{{ dv_json.stdout | default('{"items":[]}') }}'''
+expected_classes = {{ storage_pools | default({}) | dict2items | map(attribute='value.storage_class') | list | to_json }}
+
+try:
+    sc = json.loads(sc_raw)
+except Exception as e:
+    print(f"ERROR unable to parse StorageClass json: {e}")
+    sc = {"items": []}
+try:
+    pvc = json.loads(pvc_raw)
+except Exception as e:
+    print(f"ERROR unable to parse PVC json: {e}")
+    pvc = {"items": []}
+try:
+    pv = json.loads(pv_raw)
+except Exception as e:
+    print(f"ERROR unable to parse PV json: {e}")
+    pv = {"items": []}
+try:
+    dv = json.loads(dv_raw)
+except Exception as e:
+    print(f"ERROR unable to parse DataVolume json: {e}")
+    dv = {"items": []}
+
+print("===== StorageClass Governance Report =====")
+
+sc_items = sc.get("items", [])
+sc_names = {i.get("metadata", {}).get("name") for i in sc_items}
+default_classes = []
+for item in sc_items:
+    meta = item.get("metadata", {})
+    name = meta.get("name")
+    ann = meta.get("annotations", {}) or {}
+    reclaim = item.get("reclaimPolicy", "")
+    binding = item.get("volumeBindingMode", "")
+    allow_expansion = item.get("allowVolumeExpansion", False)
+    if ann.get("storageclass.kubernetes.io/is-default-class") == "true":
+        default_classes.append(name)
+    print(f"SC {name}: reclaim={reclaim}, binding={binding}, expansion={allow_expansion}")
+
+if len(default_classes) == 0:
+    print("WARN no default StorageClass detected")
+elif len(default_classes) > 1:
+    print(f"FAIL multiple default StorageClasses detected: {default_classes}")
+else:
+    print(f"INFO default StorageClass: {default_classes[0]}")
+
+for expected in expected_classes:
+    if expected and expected not in sc_names:
+        print(f"FAIL expected storage pool StorageClass missing: {expected}")
+
+print("===== PVC Checks =====")
+for item in pvc.get("items", []):
+    meta = item.get("metadata", {})
+    spec = item.get("spec", {})
+    ns = meta.get("namespace")
+    name = meta.get("name")
+    scn = spec.get("storageClassName")
+    phase = item.get("status", {}).get("phase")
+    if scn is None:
+        print(f"WARN PVC {ns}/{name}: storageClassName is empty/null, relies on default class; phase={phase}")
+    elif scn == "":
+        print(f"WARN PVC {ns}/{name}: storageClassName explicitly disabled; phase={phase}")
+    elif scn not in sc_names:
+        print(f"FAIL PVC {ns}/{name}: references missing StorageClass {scn}; phase={phase}")
+    else:
+        if default_classes and scn == default_classes[0]:
+            print(f"WARN PVC {ns}/{name}: uses default StorageClass {scn}; verify this is intentional; phase={phase}")
+        else:
+            print(f"PASS PVC {ns}/{name}: storageClassName={scn}; phase={phase}")
+
+print("===== PV ReclaimPolicy Checks =====")
+for item in pv.get("items", []):
+    meta = item.get("metadata", {})
+    spec = item.get("spec", {})
+    name = meta.get("name")
+    scn = spec.get("storageClassName")
+    reclaim = spec.get("persistentVolumeReclaimPolicy")
+    phase = item.get("status", {}).get("phase")
+    claim = spec.get("claimRef", {}) or {}
+    claim_ns = claim.get("namespace", "")
+    claim_name = claim.get("name", "")
+    if reclaim == "Delete" and ("prod" in claim_ns or "database" in claim_name or "mysql" in claim_name or "postgres" in claim_name):
+        print(f"WARN PV {name}: reclaimPolicy=Delete for possibly important claim {claim_ns}/{claim_name}, sc={scn}, phase={phase}")
+    else:
+        print(f"INFO PV {name}: reclaimPolicy={reclaim}, sc={scn}, claim={claim_ns}/{claim_name}, phase={phase}")
+
+print("===== DataVolume Checks =====")
+for item in dv.get("items", []):
+    meta = item.get("metadata", {})
+    spec = item.get("spec", {})
+    ns = meta.get("namespace")
+    name = meta.get("name")
+    pvc_spec = spec.get("pvc", {}) or {}
+    storage = spec.get("storage", {}) or {}
+    scn = pvc_spec.get("storageClassName") or storage.get("storageClassName")
+    if not scn:
+        print(f"WARN DataVolume {ns}/{name}: no explicit storageClassName")
+    elif scn not in sc_names:
+        print(f"FAIL DataVolume {ns}/{name}: references missing StorageClass {scn}")
+    elif default_classes and scn == default_classes[0]:
+        print(f"WARN DataVolume {ns}/{name}: uses default StorageClass {scn}; VM disk placement should be explicit")
+    else:
+        print(f"PASS DataVolume {ns}/{name}: storageClassName={scn}")
+PY
+  args:
+    executable: /bin/bash
+  register: storageclass_governance_report
+  changed_when: false
+  failed_when: false
+
+- name: Print StorageClass governance report
+  debug:
+    var: storageclass_governance_report.stdout_lines
+
+- name: Print StorageClass governance recommendations
+  debug:
+    msg:
+      - "Recommended rules:"
+      - "1. Production PVCs should explicitly set storageClassName."
+      - "2. VM/DataVolume disks should avoid implicit default StorageClass."
+      - "3. Important database/VM PVs should prefer Retain reclaim policy."
+      - "4. Multiple default StorageClasses are not allowed in production."
+      - "5. StorageClass names should align with storage_pools inventory."
