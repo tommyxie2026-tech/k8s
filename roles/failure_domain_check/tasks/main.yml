@@ -1,0 +1,216 @@
+---
+# Failure domain governance role.
+# Read-only checks for node, control-plane, VM, pod and StatefulSet spread across topology labels.
+
+- name: Validate node pools are enabled
+  assert:
+    that:
+      - node_pools_enabled | default(false) | bool
+    fail_msg: "node_pools_enabled=false. Enable node pools before running failure domain checks."
+    success_msg: "node pools are enabled."
+
+- name: Print failure domain baseline
+  debug:
+    msg:
+      - "Required topology labels: topology.kubernetes.io/zone, topology.kubernetes.io/rack, storage.k8s.io/failure-domain"
+      - "This role is read-only and does not modify node/workload labels."
+
+- name: Get nodes as json
+  command: >
+    {{ download_arch_dir }}/kubectl get nodes -o json
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: fd_nodes_json
+  changed_when: false
+  failed_when: false
+
+- name: Get pods as json
+  command: >
+    {{ download_arch_dir }}/kubectl get pods -A -o json
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: fd_pods_json
+  changed_when: false
+  failed_when: false
+
+- name: Get StatefulSets as json
+  command: >
+    {{ download_arch_dir }}/kubectl get sts -A -o json
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: fd_sts_json
+  changed_when: false
+  failed_when: false
+
+- name: Get KubeVirt VMIs as json when available
+  shell: |
+    set +e
+    {{ download_arch_dir }}/kubectl get crd virtualmachineinstances.kubevirt.io \
+      --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig >/dev/null 2>&1
+    if [ "$?" -eq 0 ]; then
+      {{ download_arch_dir }}/kubectl get vmi -A -o json \
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+    else
+      echo '{"items":[]}'
+    fi
+  args:
+    executable: /bin/bash
+  register: fd_vmis_json
+  changed_when: false
+  failed_when: false
+
+- name: Get Rook Ceph OSD pods if namespace exists
+  shell: |
+    set +e
+    {{ download_arch_dir }}/kubectl get namespace rook-ceph \
+      --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig >/dev/null 2>&1
+    if [ "$?" -eq 0 ]; then
+      {{ download_arch_dir }}/kubectl -n rook-ceph get pods -l app=rook-ceph-osd -o json \
+        --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+    else
+      echo '{"items":[]}'
+    fi
+  args:
+    executable: /bin/bash
+  register: fd_ceph_osd_json
+  changed_when: false
+  failed_when: false
+
+- name: Run failure domain analysis
+  shell: |
+    set +e
+    python3 - <<'PY'
+import json
+from collections import Counter, defaultdict
+
+nodes_raw = r'''{{ fd_nodes_json.stdout | default('{"items":[]}') }}'''
+pods_raw = r'''{{ fd_pods_json.stdout | default('{"items":[]}') }}'''
+sts_raw = r'''{{ fd_sts_json.stdout | default('{"items":[]}') }}'''
+vmis_raw = r'''{{ fd_vmis_json.stdout | default('{"items":[]}') }}'''
+ceph_raw = r'''{{ fd_ceph_osd_json.stdout | default('{"items":[]}') }}'''
+
+
+def load(raw, name):
+    try:
+        return json.loads(raw)
+    except Exception as e:
+        print(f"ERROR unable to parse {name}: {e}")
+        return {"items": []}
+
+nodes = load(nodes_raw, 'nodes')
+pods = load(pods_raw, 'pods')
+sts = load(sts_raw, 'statefulsets')
+vmis = load(vmis_raw, 'vmis')
+ceph = load(ceph_raw, 'ceph-osd-pods')
+
+node_meta = {}
+print("===== Failure Domain Governance Report =====")
+print("===== Node Topology =====")
+for item in nodes.get('items', []):
+    name = item.get('metadata', {}).get('name')
+    labels = item.get('metadata', {}).get('labels', {}) or {}
+    zone = labels.get('topology.kubernetes.io/zone', '')
+    rack = labels.get('topology.kubernetes.io/rack', '')
+    fd = labels.get('storage.k8s.io/failure-domain', '')
+    pool = labels.get('k8s.io/node-pool', '')
+    role_cp = 'control-plane' if 'node-role.kubernetes.io/control-plane' in labels else ''
+    node_meta[name] = {'zone': zone, 'rack': rack, 'fd': fd, 'pool': pool, 'control_plane': bool(role_cp)}
+    missing = []
+    if not zone: missing.append('zone')
+    if not rack: missing.append('rack')
+    if not fd: missing.append('failure-domain')
+    if missing:
+        print(f"WARN node {name}: pool={pool}, missing topology labels={missing}")
+    else:
+        print(f"PASS node {name}: pool={pool}, zone={zone}, rack={rack}, fd={fd}")
+
+print("===== Control Plane Spread =====")
+cp_nodes = [n for n,m in node_meta.items() if m.get('control_plane')]
+cp_zones = Counter(node_meta[n].get('zone') or 'UNKNOWN' for n in cp_nodes)
+cp_racks = Counter(node_meta[n].get('rack') or 'UNKNOWN' for n in cp_nodes)
+print(f"INFO control-plane nodes={cp_nodes}")
+print(f"INFO control-plane zones={dict(cp_zones)} racks={dict(cp_racks)}")
+if len(cp_nodes) >= 3 and (len(cp_zones) < 2 or 'UNKNOWN' in cp_zones):
+    print("WARN control-plane is not clearly spread across multiple zones")
+if len(cp_nodes) >= 3 and (len(cp_racks) < 2 or 'UNKNOWN' in cp_racks):
+    print("WARN control-plane is not clearly spread across multiple racks")
+
+print("===== Pod Failure Domain Distribution =====")
+pod_by_ns = defaultdict(list)
+for item in pods.get('items', []):
+    meta = item.get('metadata', {})
+    spec = item.get('spec', {})
+    ns = meta.get('namespace')
+    name = meta.get('name')
+    node = spec.get('nodeName')
+    if not node:
+        continue
+    pod_by_ns[ns].append((name, node))
+for ns, arr in sorted(pod_by_ns.items()):
+    zones = Counter(node_meta.get(node, {}).get('zone') or 'UNKNOWN' for _, node in arr)
+    racks = Counter(node_meta.get(node, {}).get('rack') or 'UNKNOWN' for _, node in arr)
+    if len(arr) >= 2:
+        print(f"INFO namespace={ns}: pods={len(arr)}, zones={dict(zones)}, racks={dict(racks)}")
+
+print("===== StatefulSet Governance =====")
+for item in sts.get('items', []):
+    meta = item.get('metadata', {})
+    spec = item.get('spec', {})
+    ns = meta.get('namespace')
+    name = meta.get('name')
+    replicas = spec.get('replicas', 0)
+    selector = spec.get('selector', {}).get('matchLabels', {}) or {}
+    if replicas and replicas >= 2:
+        print(f"INFO StatefulSet {ns}/{name}: replicas={replicas}, selector={selector}; verify pod anti-affinity/topologySpreadConstraints")
+        tmpl = spec.get('template', {}).get('spec', {})
+        if not tmpl.get('affinity') and not tmpl.get('topologySpreadConstraints'):
+            print(f"WARN StatefulSet {ns}/{name}: no affinity/topologySpreadConstraints detected")
+
+print("===== KubeVirt VMI Failure Domain =====")
+for item in vmis.get('items', []):
+    meta = item.get('metadata', {})
+    status = item.get('status', {})
+    ns = meta.get('namespace')
+    name = meta.get('name')
+    node = status.get('nodeName') or item.get('spec', {}).get('nodeName')
+    info = node_meta.get(node, {})
+    print(f"INFO VMI {ns}/{name}: node={node}, pool={info.get('pool')}, zone={info.get('zone') or 'UNKNOWN'}, rack={info.get('rack') or 'UNKNOWN'}, fd={info.get('fd') or 'UNKNOWN'}")
+    if info.get('pool') != 'vm':
+        print(f"WARN VMI {ns}/{name}: not running on k8s.io/node-pool=vm")
+    if not info.get('zone') or not info.get('rack'):
+        print(f"WARN VMI {ns}/{name}: node missing zone/rack topology labels")
+
+print("===== Ceph OSD Failure Domain =====")
+osd_nodes = []
+for item in ceph.get('items', []):
+    meta = item.get('metadata', {})
+    spec = item.get('spec', {})
+    name = meta.get('name')
+    node = spec.get('nodeName')
+    osd_nodes.append(node)
+    info = node_meta.get(node, {})
+    print(f"INFO OSD pod {name}: node={node}, zone={info.get('zone') or 'UNKNOWN'}, rack={info.get('rack') or 'UNKNOWN'}, fd={info.get('fd') or 'UNKNOWN'}")
+if osd_nodes:
+    zones = Counter(node_meta.get(node, {}).get('zone') or 'UNKNOWN' for node in osd_nodes)
+    racks = Counter(node_meta.get(node, {}).get('rack') or 'UNKNOWN' for node in osd_nodes)
+    print(f"INFO Ceph OSD zones={dict(zones)}, racks={dict(racks)}")
+    if len(osd_nodes) >= 3 and (len(zones) < 2 or 'UNKNOWN' in zones):
+        print("WARN Ceph OSDs are not clearly spread across multiple zones")
+    if len(osd_nodes) >= 3 and (len(racks) < 2 or 'UNKNOWN' in racks):
+        print("WARN Ceph OSDs are not clearly spread across multiple racks")
+else:
+    print("INFO no rook-ceph OSD pods detected")
+
+print("===== Recommendations =====")
+print("1. Add topology.kubernetes.io/zone to every node.")
+print("2. Add topology.kubernetes.io/rack to every physical node when rack topology exists.")
+print("3. Add storage.k8s.io/failure-domain for storage-aware scheduling.")
+print("4. Spread control-plane, Ceph OSD, StatefulSet and VM workloads across failure domains.")
+print("5. Use podAntiAffinity/topologySpreadConstraints for replicated services.")
+PY
+  args:
+    executable: /bin/bash
+  register: failure_domain_report
+  changed_when: false
+  failed_when: false
+
+- name: Print failure domain report
+  debug:
+    var: failure_domain_report.stdout_lines
