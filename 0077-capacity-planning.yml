@@ -1,0 +1,8 @@
+---
+# Read-only capacity planning baseline.
+
+- name: capacity planning baseline
+  hosts: localhost
+  gather_facts: no
+  roles:
+    - capacity_planning
