@@ -1,0 +1,9 @@
+---
+# Lightweight observability agent installation.
+# No Prometheus/Grafana/Alertmanager installation.
+
+- name: observability agent
+  hosts: localhost
+  gather_facts: no
+  roles:
+    - observability_agent
