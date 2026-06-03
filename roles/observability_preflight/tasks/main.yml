@@ -1,0 +1,136 @@
+---
+# Independent observability preflight.
+# Read-only checks for external/hybrid/in_cluster observability mode.
+
+- name: Validate observability enable flag
+  assert:
+    that:
+      - observability_enabled | default(false) | bool
+    fail_msg: "observability_enabled=false. Enable observability before running observability preflight."
+    success_msg: "observability is enabled."
+
+- name: Validate observability mode
+  assert:
+    that:
+      - observability_mode in ['external', 'hybrid', 'in_cluster']
+    fail_msg: "observability_mode must be external, hybrid, or in_cluster."
+    success_msg: "observability mode is valid."
+
+- name: Validate scrape mode
+  assert:
+    that:
+      - observability_scrape_mode in ['pull', 'remote_write']
+    fail_msg: "observability_scrape_mode must be pull or remote_write."
+    success_msg: "observability scrape mode is valid."
+
+- name: Block production-style full in-cluster monitoring by default
+  assert:
+    that:
+      - not (observability_mode != 'in_cluster' and observability_install_in_cluster_stack | default(false) | bool)
+    fail_msg: "Full in-cluster monitoring stack is only allowed when observability_mode=in_cluster."
+    success_msg: "in-cluster stack policy passed."
+
+- name: Validate external endpoints for external or hybrid pull mode
+  assert:
+    that:
+      - observability_prometheus_endpoint | default('') | length > 0
+    fail_msg: "observability_prometheus_endpoint is required for external/hybrid pull mode."
+    success_msg: "Prometheus endpoint is configured."
+  when:
+    - observability_mode in ['external', 'hybrid']
+    - observability_scrape_mode == 'pull'
+
+- name: Validate remote_write endpoint when needed
+  assert:
+    that:
+      - observability_remote_write_endpoint | default('') | length > 0
+    fail_msg: "observability_remote_write_endpoint is required for remote_write mode."
+    success_msg: "remote_write endpoint is configured."
+  when: observability_scrape_mode == 'remote_write'
+
+- name: Validate alertmanager endpoint when configured for external monitoring
+  debug:
+    msg:
+      - "observability_alertmanager_endpoint={{ observability_alertmanager_endpoint | default('') }}"
+      - "observability_grafana_endpoint={{ observability_grafana_endpoint | default('') }}"
+      - "Empty endpoints are allowed at preflight stage, but production should configure both."
+  when: observability_mode in ['external', 'hybrid']
+
+- name: Check Kubernetes API access from current execution environment
+  command: >
+    {{ download_arch_dir }}/kubectl get nodes -o wide
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: observability_k8s_access
+  changed_when: false
+  failed_when: false
+
+- name: Print Kubernetes API access result
+  debug:
+    msg:
+      - "kubernetes_access_rc={{ observability_k8s_access.rc }}"
+      - "{{ observability_k8s_access.stdout_lines | default([]) }}"
+
+- name: Collect observability target inventory
+  shell: |
+    set +e
+    echo "===== Nodes ====="
+    {{ download_arch_dir }}/kubectl get nodes -o wide \
+      --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+    echo "===== System Pods ====="
+    {{ download_arch_dir }}/kubectl get pods -A \
+      --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig | egrep 'kube-system|kubevirt|cdi|rook-ceph|nfs-csi|topolvm|local-path' || true
+    echo "===== Services ====="
+    {{ download_arch_dir }}/kubectl get svc -A \
+      --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig | egrep 'kube-state|metrics|prometheus|grafana|alertmanager|node-exporter|kubevirt|rook-ceph' || true
+  args:
+    executable: /bin/bash
+  register: observability_target_inventory
+  changed_when: false
+  failed_when: false
+
+- name: Print observability target inventory
+  debug:
+    var: observability_target_inventory.stdout_lines
+
+- name: Check endpoint reachability when network check is enabled
+  shell: |
+    set +e
+    check_url() {
+      name="$1"
+      url="$2"
+      if [ -z "$url" ]; then
+        echo "SKIP $name endpoint empty"
+        return 0
+      fi
+      if command -v curl >/dev/null 2>&1; then
+        code=$(curl -k -sS -o /dev/null -w '%{http_code}' --max-time {{ observability_timeout_seconds | default(5) }} "$url" || true)
+        echo "$name $url http_code=$code"
+      else
+        echo "curl not found; cannot check $name $url"
+      fi
+    }
+    check_url prometheus "{{ observability_prometheus_endpoint | default('') }}"
+    check_url remote_write "{{ observability_remote_write_endpoint | default('') }}"
+    check_url alertmanager "{{ observability_alertmanager_endpoint | default('') }}"
+    check_url grafana "{{ observability_grafana_endpoint | default('') }}"
+  args:
+    executable: /bin/bash
+  register: observability_endpoint_check
+  changed_when: false
+  failed_when: false
+  when: observability_network_check_enabled | default(true) | bool
+
+- name: Print endpoint reachability result
+  debug:
+    var: observability_endpoint_check.stdout_lines
+  when: observability_network_check_enabled | default(true) | bool
+
+- name: Print observability preflight summary
+  debug:
+    msg:
+      - "Observability preflight completed."
+      - "mode={{ observability_mode }}"
+      - "scrape_mode={{ observability_scrape_mode }}"
+      - "install_in_cluster_stack={{ observability_install_in_cluster_stack | default(false) }}"
+      - "install_agent={{ observability_install_agent | default(false) }}"
+      - "This playbook is read-only and does not install monitoring components."
