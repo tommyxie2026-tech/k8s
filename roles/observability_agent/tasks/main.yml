@@ -1,0 +1,233 @@
+---
+# Observability agent role.
+# Installs only lightweight exporters/agents inside the business cluster.
+# It does not install Prometheus, Grafana, Alertmanager, Thanos, Mimir, or long-term storage.
+
+- name: Validate observability is enabled
+  assert:
+    that:
+      - observability_enabled | default(false) | bool
+      - observability_install_agent | default(false) | bool
+    fail_msg: "Set observability_enabled=true and observability_install_agent=true before installing observability agents."
+    success_msg: "observability agent installation is enabled."
+
+- name: Block full in-cluster monitoring stack from agent role
+  assert:
+    that:
+      - not observability_install_in_cluster_stack | default(false) | bool
+    fail_msg: "observability_agent must not install full monitoring stack. Use external monitoring plane instead."
+    success_msg: "full in-cluster stack is disabled."
+
+- name: Create observability namespace
+  command: >
+    {{ download_arch_dir }}/kubectl create namespace observability-agent
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: observability_agent_namespace_create
+  changed_when: "'created' in observability_agent_namespace_create.stdout"
+  failed_when: false
+
+- name: Label observability namespace
+  command: >
+    {{ download_arch_dir }}/kubectl label namespace observability-agent
+    app.kubernetes.io/part-of=observability
+    app.kubernetes.io/component=agent
+    --overwrite
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  changed_when: false
+
+- name: Install node-exporter DaemonSet when enabled
+  shell: |
+    cat <<'EOF' | {{ download_arch_dir }}/kubectl apply -f - \
+      --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+    apiVersion: v1
+    kind: ServiceAccount
+    metadata:
+      name: node-exporter
+      namespace: observability-agent
+    ---
+    apiVersion: apps/v1
+    kind: DaemonSet
+    metadata:
+      name: node-exporter
+      namespace: observability-agent
+      labels:
+        app.kubernetes.io/name: node-exporter
+    spec:
+      selector:
+        matchLabels:
+          app.kubernetes.io/name: node-exporter
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: node-exporter
+        spec:
+          serviceAccountName: node-exporter
+          hostNetwork: true
+          hostPID: true
+          tolerations:
+            - operator: Exists
+          containers:
+            - name: node-exporter
+              image: quay.io/prometheus/node-exporter:v1.8.2
+              args:
+                - --path.procfs=/host/proc
+                - --path.sysfs=/host/sys
+                - --path.rootfs=/host/root
+                - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|var/lib/docker/.+|var/lib/kubelet/pods/.+)($|/)
+              ports:
+                - name: metrics
+                  containerPort: 9100
+                  hostPort: 9100
+              volumeMounts:
+                - name: proc
+                  mountPath: /host/proc
+                  readOnly: true
+                - name: sys
+                  mountPath: /host/sys
+                  readOnly: true
+                - name: root
+                  mountPath: /host/root
+                  readOnly: true
+          volumes:
+            - name: proc
+              hostPath:
+                path: /proc
+            - name: sys
+              hostPath:
+                path: /sys
+            - name: root
+              hostPath:
+                path: /
+    ---
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: node-exporter
+      namespace: observability-agent
+      labels:
+        app.kubernetes.io/name: node-exporter
+    spec:
+      selector:
+        app.kubernetes.io/name: node-exporter
+      ports:
+        - name: metrics
+          port: 9100
+          targetPort: metrics
+    EOF
+  args:
+    executable: /bin/bash
+  register: observability_node_exporter_apply
+  changed_when: false
+  when: observability_install_node_exporter | default(true) | bool
+
+- name: Install kube-state-metrics when enabled
+  shell: |
+    cat <<'EOF' | {{ download_arch_dir }}/kubectl apply -f - \
+      --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+    apiVersion: v1
+    kind: ServiceAccount
+    metadata:
+      name: kube-state-metrics
+      namespace: observability-agent
+    ---
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: observability-agent:kube-state-metrics
+    rules:
+      - apiGroups: [""]
+        resources: ["configmaps", "secrets", "nodes", "pods", "services", "resourcequotas", "replicationcontrollers", "limitranges", "persistentvolumeclaims", "persistentvolumes", "namespaces", "endpoints"]
+        verbs: ["list", "watch"]
+      - apiGroups: ["apps"]
+        resources: ["statefulsets", "daemonsets", "deployments", "replicasets"]
+        verbs: ["list", "watch"]
+      - apiGroups: ["batch"]
+        resources: ["cronjobs", "jobs"]
+        verbs: ["list", "watch"]
+      - apiGroups: ["autoscaling"]
+        resources: ["horizontalpodautoscalers"]
+        verbs: ["list", "watch"]
+      - apiGroups: ["policy"]
+        resources: ["poddisruptionbudgets"]
+        verbs: ["list", "watch"]
+      - apiGroups: ["storage.k8s.io"]
+        resources: ["storageclasses", "volumeattachments"]
+        verbs: ["list", "watch"]
+    ---
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: observability-agent:kube-state-metrics
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: observability-agent:kube-state-metrics
+    subjects:
+      - kind: ServiceAccount
+        name: kube-state-metrics
+        namespace: observability-agent
+    ---
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: kube-state-metrics
+      namespace: observability-agent
+      labels:
+        app.kubernetes.io/name: kube-state-metrics
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app.kubernetes.io/name: kube-state-metrics
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: kube-state-metrics
+        spec:
+          serviceAccountName: kube-state-metrics
+          containers:
+            - name: kube-state-metrics
+              image: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.13.0
+              ports:
+                - name: http-metrics
+                  containerPort: 8080
+                - name: telemetry
+                  containerPort: 8081
+    ---
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: kube-state-metrics
+      namespace: observability-agent
+      labels:
+        app.kubernetes.io/name: kube-state-metrics
+    spec:
+      selector:
+        app.kubernetes.io/name: kube-state-metrics
+      ports:
+        - name: http-metrics
+          port: 8080
+          targetPort: http-metrics
+        - name: telemetry
+          port: 8081
+          targetPort: telemetry
+    EOF
+  args:
+    executable: /bin/bash
+  register: observability_ksm_apply
+  changed_when: false
+  when: observability_install_kube_state_metrics | default(true) | bool
+
+- name: Print observability agent status
+  command: >
+    {{ download_arch_dir }}/kubectl -n observability-agent get pods,svc -o wide
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: observability_agent_status
+  changed_when: false
+  failed_when: false
+
+- name: Output observability agent status
+  debug:
+    msg:
+      - "Observability agent installed. It exposes metrics only and does not store metrics."
+      - "{{ observability_agent_status.stdout_lines | default([]) }}"
