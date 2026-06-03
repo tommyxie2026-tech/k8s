@@ -40,6 +40,15 @@ COMMON_PLAYBOOKS=(
   0068-kubevirt-datavolume-smoke-test.yml
   0069-install-virtctl.yml
   0070-kubevirt-vm-ops.yml
+  0071-node-pool-labels.yml
+  0072-node-pool-health-check.yml
+  0073-storage-pool-health-check.yml
+  0074-scheduling-policy-check.yml
+  0075-storageclass-governance.yml
+  0076-failure-domain-check.yml
+  0077-capacity-planning.yml
+  0078-cluster-admission-baseline.yml
+  0080-observability-preflight.yml
   0090-stop-services.yml
   0091-reset-node-runtime.yml
 )
@@ -83,6 +92,15 @@ case "${MODE}" in
       0068-kubevirt-datavolume-smoke-test.yml
       0069-install-virtctl.yml
       0070-kubevirt-vm-ops.yml
+      0071-node-pool-labels.yml
+      0072-node-pool-health-check.yml
+      0073-storage-pool-health-check.yml
+      0074-scheduling-policy-check.yml
+      0075-storageclass-governance.yml
+      0076-failure-domain-check.yml
+      0077-capacity-planning.yml
+      0078-cluster-admission-baseline.yml
+      0080-observability-preflight.yml
       0050-single-to-ha.yml
     )
     ;;
