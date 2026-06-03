@@ -1,0 +1,10 @@
+---
+# 0080-observability-preflight.yml
+# Independent observability preflight.
+# Read-only: validates observability mode, endpoints, and target inventory.
+
+- name: observability preflight
+  hosts: localhost
+  gather_facts: no
+  roles:
+    - observability_preflight
