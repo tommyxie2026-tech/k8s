@@ -1,0 +1,39 @@
+---
+# Backup and disaster recovery defaults.
+# All backup/restore operations are disabled by default.
+
+backup_enabled: false
+backup_apply_confirm: false
+
+backup_retention_days: 30
+backup_verify_enabled: true
+
+# local | nfs | s3
+backup_target_type: local
+backup_local_dir: /var/backups/k8s
+backup_nfs_mount: ""
+backup_nfs_dir: ""
+
+backup_s3_endpoint: ""
+backup_s3_bucket: ""
+backup_s3_prefix: k8s
+backup_s3_region: us-east-1
+backup_s3_access_key: ""
+backup_s3_secret_key: ""
+
+etcd_backup_enabled: false
+etcd_backup_dir: "{{ backup_local_dir }}/etcd"
+etcd_backup_snapshot_prefix: etcd-snapshot
+etcdctl_bin: "{{ download_arch_dir }}/etcdctl"
+etcdctl_api: "3"
+
+# These paths match the existing project default control-plane PKI layout.
+etcd_cacert: "{{ local_cluster_config_dir }}/pki/etcd/ca.pem"
+etcd_cert: "{{ local_cluster_config_dir }}/pki/etcd/peer.pem"
+etcd_key: "{{ local_cluster_config_dir }}/pki/etcd/peer-key.pem"
+etcd_endpoints: "https://127.0.0.1:2379"
+
+# Restore is intentionally separated and must have its own explicit confirmation.
+etcd_restore_enabled: false
+etcd_restore_apply_confirm: false
+etcd_restore_snapshot_path: ""
