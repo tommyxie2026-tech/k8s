@@ -1,0 +1,10 @@
+---
+# 0090-etcd-backup.yml
+# etcd snapshot backup.
+# Safe by default: requires backup_enabled=true, etcd_backup_enabled=true and backup_apply_confirm=true.
+
+- name: etcd snapshot backup
+  hosts: localhost
+  gather_facts: no
+  roles:
+    - etcd_backup
