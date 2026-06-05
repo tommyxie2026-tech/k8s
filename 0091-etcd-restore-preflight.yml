@@ -1,0 +1,10 @@
+---
+# 0091-etcd-restore-preflight.yml
+# Non-destructive etcd restore preflight.
+# Validates restore snapshot and prints the restore plan.
+
+- name: etcd restore preflight
+  hosts: localhost
+  gather_facts: no
+  roles:
+    - etcd_restore_preflight
