@@ -1,0 +1,138 @@
+---
+# etcd snapshot backup role.
+# Safe by default: disabled unless backup_enabled, etcd_backup_enabled and backup_apply_confirm are all true.
+
+- name: Validate etcd backup switches
+  assert:
+    that:
+      - backup_enabled | default(false) | bool
+      - etcd_backup_enabled | default(false) | bool
+      - backup_apply_confirm | default(false) | bool
+    fail_msg: "etcd backup requires backup_enabled=true, etcd_backup_enabled=true and backup_apply_confirm=true."
+    success_msg: "etcd backup switches confirmed."
+  run_once: true
+
+- name: Validate backup target type
+  assert:
+    that:
+      - backup_target_type in ['local', 'nfs', 's3']
+    fail_msg: "backup_target_type must be local, nfs, or s3."
+  run_once: true
+
+- name: Validate etcdctl exists
+  stat:
+    path: "{{ etcdctl_bin }}"
+  register: etcdctl_stat
+  run_once: true
+
+- name: Assert etcdctl exists
+  assert:
+    that:
+      - etcdctl_stat.stat.exists
+    fail_msg: "etcdctl not found at {{ etcdctl_bin }}."
+  run_once: true
+
+- name: Ensure etcd backup directory exists
+  file:
+    path: "{{ etcd_backup_dir }}"
+    state: directory
+    mode: '0700'
+  become: true
+  run_once: true
+
+- name: Generate etcd backup timestamp
+  command: date +%Y%m%d%H%M%S
+  register: etcd_backup_timestamp
+  changed_when: false
+  run_once: true
+
+- name: Set etcd snapshot path
+  set_fact:
+    etcd_snapshot_path: "{{ etcd_backup_dir }}/{{ etcd_backup_snapshot_prefix }}-{{ etcd_backup_timestamp.stdout }}.db"
+  run_once: true
+
+- name: Save etcd snapshot
+  command: >
+    {{ etcdctl_bin }}
+    --endpoints={{ etcd_endpoints }}
+    --cacert={{ etcd_cacert }}
+    --cert={{ etcd_cert }}
+    --key={{ etcd_key }}
+    snapshot save {{ etcd_snapshot_path }}
+  environment:
+    ETCDCTL_API: "{{ etcdctl_api | default('3') }}"
+  register: etcd_snapshot_save
+  changed_when: true
+  become: true
+  run_once: true
+
+- name: Print etcd snapshot save output
+  debug:
+    var: etcd_snapshot_save.stdout_lines
+  run_once: true
+
+- name: Verify etcd snapshot status
+  command: >
+    {{ etcdctl_bin }} snapshot status {{ etcd_snapshot_path }} --write-out=table
+  environment:
+    ETCDCTL_API: "{{ etcdctl_api | default('3') }}"
+  register: etcd_snapshot_status
+  changed_when: false
+  become: true
+  run_once: true
+  when: backup_verify_enabled | default(true) | bool
+
+- name: Print etcd snapshot status
+  debug:
+    var: etcd_snapshot_status.stdout_lines
+  run_once: true
+  when: backup_verify_enabled | default(true) | bool
+
+- name: Apply local retention policy
+  shell: |
+    set -euo pipefail
+    find {{ etcd_backup_dir }} -type f -name '{{ etcd_backup_snapshot_prefix }}-*.db' -mtime +{{ backup_retention_days | int }} -print -delete
+  args:
+    executable: /bin/bash
+  register: etcd_backup_retention
+  changed_when: false
+  become: true
+  run_once: true
+  when:
+    - backup_target_type == 'local'
+    - backup_retention_days | int > 0
+
+- name: Print retention output
+  debug:
+    var: etcd_backup_retention.stdout_lines
+  run_once: true
+  when:
+    - backup_target_type == 'local'
+    - backup_retention_days | int > 0
+
+- name: Print S3 upload placeholder
+  debug:
+    msg:
+      - "backup_target_type=s3 selected. Upload integration is reserved for next phase."
+      - "snapshot={{ etcd_snapshot_path }}"
+      - "bucket={{ backup_s3_bucket }}"
+      - "prefix={{ backup_s3_prefix }}"
+  run_once: true
+  when: backup_target_type == 's3'
+
+- name: Print NFS backup placeholder
+  debug:
+    msg:
+      - "backup_target_type=nfs selected. Ensure {{ backup_nfs_mount }} is mounted externally."
+      - "snapshot={{ etcd_snapshot_path }}"
+  run_once: true
+  when: backup_target_type == 'nfs'
+
+- name: Print etcd backup summary
+  debug:
+    msg:
+      - "etcd backup completed."
+      - "snapshot={{ etcd_snapshot_path }}"
+      - "target_type={{ backup_target_type }}"
+      - "verify_enabled={{ backup_verify_enabled }}"
+  run_once: true
