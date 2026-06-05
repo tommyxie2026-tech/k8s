@@ -1,0 +1,82 @@
+---
+# etcd restore preflight role.
+# Read-only by default: validates restore inputs and prints the restore plan.
+# Actual restore must be implemented in a separate destructive role with explicit confirmation.
+
+- name: Validate etcd restore feature switch
+  assert:
+    that:
+      - backup_enabled | default(false) | bool
+      - etcd_restore_enabled | default(false) | bool
+    fail_msg: "etcd restore preflight requires backup_enabled=true and etcd_restore_enabled=true."
+    success_msg: "etcd restore preflight switches confirmed."
+  run_once: true
+
+- name: Block destructive restore in preflight role
+  assert:
+    that:
+      - not (etcd_restore_apply_confirm | default(false) | bool)
+    fail_msg: "This is a preflight role and refuses etcd_restore_apply_confirm=true. Use the dedicated restore role for destructive restore."
+    success_msg: "preflight is non-destructive."
+  run_once: true
+
+- name: Validate restore snapshot path is provided
+  assert:
+    that:
+      - etcd_restore_snapshot_path | default('') | length > 0
+    fail_msg: "etcd_restore_snapshot_path must be provided for restore preflight."
+  run_once: true
+
+- name: Check restore snapshot exists
+  stat:
+    path: "{{ etcd_restore_snapshot_path }}"
+  register: etcd_restore_snapshot_stat
+  become: true
+  run_once: true
+
+- name: Assert restore snapshot exists
+  assert:
+    that:
+      - etcd_restore_snapshot_stat.stat.exists
+      - etcd_restore_snapshot_stat.stat.isreg
+    fail_msg: "Restore snapshot not found or not a regular file: {{ etcd_restore_snapshot_path }}"
+    success_msg: "restore snapshot exists."
+  run_once: true
+
+- name: Validate etcdctl exists
+  stat:
+    path: "{{ etcdctl_bin }}"
+  register: etcd_restore_etcdctl_stat
+  run_once: true
+
+- name: Assert etcdctl exists
+  assert:
+    that:
+      - etcd_restore_etcdctl_stat.stat.exists
+    fail_msg: "etcdctl not found at {{ etcdctl_bin }}."
+  run_once: true
+
+- name: Verify snapshot status
+  command: >
+    {{ etcdctl_bin }} snapshot status {{ etcd_restore_snapshot_path }} --write-out=table
+  environment:
+    ETCDCTL_API: "{{ etcdctl_api | default('3') }}"
+  register: etcd_restore_snapshot_status
+  changed_when: false
+  become: true
+  run_once: true
+
+- name: Print restore snapshot status
+  debug:
+    var: etcd_restore_snapshot_status.stdout_lines
+  run_once: true
+
+- name: Print etcd restore plan
+  debug:
+    msg:
+      - "etcd restore preflight completed."
+      - "snapshot={{ etcd_restore_snapshot_path }}"
+      - "This role does not stop services or restore etcd data."
+      - "Destructive restore plan should stop kube-apiserver/controller-manager/scheduler, stop etcd, restore snapshot, then restart control-plane."
+      - "For HA restore, rebuild member list carefully and verify quorum before bringing API server back."
+  run_once: true
