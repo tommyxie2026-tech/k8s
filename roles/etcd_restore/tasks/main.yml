@@ -1,0 +1,82 @@
+---
+# etcd restore role.
+# Destructive operation. Default mode is plan-only unless explicitly confirmed.
+
+- name: Validate etcd restore switches
+  assert:
+    that:
+      - backup_enabled | default(false) | bool
+      - etcd_restore_enabled | default(false) | bool
+    fail_msg: "etcd restore requires backup_enabled=true and etcd_restore_enabled=true."
+    success_msg: "etcd restore switches enabled."
+  run_once: true
+
+- name: Validate restore snapshot path
+  assert:
+    that:
+      - etcd_restore_snapshot_path | default('') | length > 0
+    fail_msg: "etcd_restore_snapshot_path must be provided."
+  run_once: true
+
+- name: Check restore snapshot file
+  stat:
+    path: "{{ etcd_restore_snapshot_path }}"
+  register: etcd_restore_snapshot_stat
+  become: true
+  run_once: true
+
+- name: Assert restore snapshot file exists
+  assert:
+    that:
+      - etcd_restore_snapshot_stat.stat.exists
+      - etcd_restore_snapshot_stat.stat.isreg
+    fail_msg: "Restore snapshot not found or not a regular file: {{ etcd_restore_snapshot_path }}"
+  run_once: true
+
+- name: Verify restore snapshot status
+  command: >
+    {{ etcdctl_bin }} snapshot status {{ etcd_restore_snapshot_path }} --write-out=table
+  environment:
+    ETCDCTL_API: "{{ etcdctl_api | default('3') }}"
+  register: etcd_restore_snapshot_status
+  changed_when: false
+  become: true
+  run_once: true
+
+- name: Print restore snapshot status
+  debug:
+    var: etcd_restore_snapshot_status.stdout_lines
+  run_once: true
+
+- name: Print destructive restore plan
+  debug:
+    msg:
+      - "DESTRUCTIVE etcd restore plan"
+      - "snapshot={{ etcd_restore_snapshot_path }}"
+      - "1. Stop kube-apiserver, kube-controller-manager, kube-scheduler."
+      - "2. Stop etcd on target control-plane node(s)."
+      - "3. Move existing etcd data directory aside."
+      - "4. Restore snapshot using etcdctl snapshot restore."
+      - "5. Reconfigure etcd member data dir and service args."
+      - "6. Start etcd and verify endpoint health."
+      - "7. Start Kubernetes control-plane components."
+      - "8. Verify node, pod, API, and workload health."
+      - "This role is plan-only unless etcd_restore_apply_confirm=true and etcd_restore_confirm_phrase=RESTORE_ETCD."
+  run_once: true
+
+- name: Stop before destructive restore unless explicitly confirmed
+  assert:
+    that:
+      - etcd_restore_apply_confirm | default(false) | bool
+      - etcd_restore_confirm_phrase | default('') == 'RESTORE_ETCD'
+    fail_msg: "Plan-only mode. To execute destructive restore, set etcd_restore_apply_confirm=true and etcd_restore_confirm_phrase=RESTORE_ETCD."
+    success_msg: "destructive restore confirmed."
+  run_once: true
+
+- name: Destructive restore placeholder
+  debug:
+    msg:
+      - "Destructive restore execution is intentionally not automated in V1."
+      - "This guard exists to prevent accidental cluster data loss."
+      - "Next phase should implement OS/service-specific restore steps after validating etcd data_dir and systemd unit layout."
+  run_once: true
