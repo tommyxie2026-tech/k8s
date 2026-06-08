@@ -1,0 +1,150 @@
+---
+# Velero preflight role.
+# Read-only checks for Velero, CSI Snapshot, object storage, KubeVirt and CDI prerequisites.
+
+- name: Print Velero preflight mode
+  debug:
+    msg:
+      - "Velero preflight is read-only."
+      - "It does not install Velero or modify cluster resources."
+      - "Checks: CRDs, VolumeSnapshotClass, CSI drivers, KubeVirt, CDI, object storage config."
+  run_once: true
+
+- name: Check Kubernetes API access
+  command: >
+    {{ download_arch_dir }}/kubectl get nodes -o wide
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: velero_preflight_nodes
+  changed_when: false
+  failed_when: false
+  run_once: true
+
+- name: Assert Kubernetes API access works
+  assert:
+    that:
+      - velero_preflight_nodes.rc == 0
+    fail_msg: "Cannot access Kubernetes API with admin kubeconfig."
+    success_msg: "Kubernetes API access works."
+  run_once: true
+
+- name: Check Velero CRDs
+  shell: |
+    set +e
+    {{ download_arch_dir }}/kubectl get crd backups.velero.io restores.velero.io schedules.velero.io \
+      --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  args:
+    executable: /bin/bash
+  register: velero_preflight_crds
+  changed_when: false
+  failed_when: false
+  run_once: true
+
+- name: Check CSI snapshot CRDs
+  shell: |
+    set +e
+    {{ download_arch_dir }}/kubectl get crd volumesnapshots.snapshot.storage.k8s.io volumesnapshotcontents.snapshot.storage.k8s.io volumesnapshotclasses.snapshot.storage.k8s.io \
+      --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  args:
+    executable: /bin/bash
+  register: velero_preflight_snapshot_crds
+  changed_when: false
+  failed_when: false
+  run_once: true
+
+- name: Get VolumeSnapshotClass inventory
+  command: >
+    {{ download_arch_dir }}/kubectl get volumesnapshotclass -o wide
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: velero_preflight_vsc
+  changed_when: false
+  failed_when: false
+  run_once: true
+
+- name: Get CSI driver inventory
+  command: >
+    {{ download_arch_dir }}/kubectl get csidrivers -o wide
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: velero_preflight_csidrivers
+  changed_when: false
+  failed_when: false
+  run_once: true
+
+- name: Check KubeVirt CRDs
+  shell: |
+    set +e
+    {{ download_arch_dir }}/kubectl get crd virtualmachines.kubevirt.io virtualmachineinstances.kubevirt.io \
+      --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  args:
+    executable: /bin/bash
+  register: velero_preflight_kubevirt_crds
+  changed_when: false
+  failed_when: false
+  run_once: true
+
+- name: Check CDI CRDs
+  shell: |
+    set +e
+    {{ download_arch_dir }}/kubectl get crd datavolumes.cdi.kubevirt.io datasources.cdi.kubevirt.io \
+      --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  args:
+    executable: /bin/bash
+  register: velero_preflight_cdi_crds
+  changed_when: false
+  failed_when: false
+  run_once: true
+
+- name: Print object storage config check
+  debug:
+    msg:
+      - "backup_target_type={{ backup_target_type | default('local') }}"
+      - "backup_s3_endpoint={{ backup_s3_endpoint | default('') }}"
+      - "backup_s3_bucket={{ backup_s3_bucket | default('') }}"
+      - "Velero production mode should use S3-compatible object storage."
+  run_once: true
+
+- name: Warn if S3 backup target is not configured
+  debug:
+    msg:
+      - "WARN: backup_target_type is not s3. Velero metadata/backups should use object storage for production DR."
+  when: backup_target_type | default('local') != 's3'
+  run_once: true
+
+- name: Validate S3 fields when selected
+  assert:
+    that:
+      - backup_s3_endpoint | default('') | length > 0
+      - backup_s3_bucket | default('') | length > 0
+    fail_msg: "backup_target_type=s3 requires backup_s3_endpoint and backup_s3_bucket."
+    success_msg: "S3 endpoint and bucket are configured."
+  when: backup_target_type | default('local') == 's3'
+  run_once: true
+
+- name: Print Velero preflight report
+  debug:
+    msg:
+      - "===== Nodes ====="
+      - "{{ velero_preflight_nodes.stdout_lines | default([]) }}"
+      - "===== Velero CRDs ====="
+      - "{{ velero_preflight_crds.stdout_lines | default([]) }}"
+      - "===== CSI Snapshot CRDs ====="
+      - "{{ velero_preflight_snapshot_crds.stdout_lines | default([]) }}"
+      - "===== VolumeSnapshotClass ====="
+      - "{{ velero_preflight_vsc.stdout_lines | default([]) }}"
+      - "===== CSI Drivers ====="
+      - "{{ velero_preflight_csidrivers.stdout_lines | default([]) }}"
+      - "===== KubeVirt CRDs ====="
+      - "{{ velero_preflight_kubevirt_crds.stdout_lines | default([]) }}"
+      - "===== CDI CRDs ====="
+      - "{{ velero_preflight_cdi_crds.stdout_lines | default([]) }}"
+  run_once: true
+
+- name: Print Velero recommendations
+  debug:
+    msg:
+      - "Recommendations:"
+      - "1. Use S3-compatible object storage for Velero backups."
+      - "2. Install CSI snapshot CRDs and snapshot-controller before enabling CSI snapshots."
+      - "3. Ensure at least one VolumeSnapshotClass exists for VM/PVC backup."
+      - "4. For KubeVirt VM backup, verify VM, DataVolume and PVC restore flow in a test namespace."
+      - "5. Do not rely on etcd backup alone for application/VM disaster recovery."
+  run_once: true
