@@ -1,0 +1,9 @@
+---
+# 0092-velero-preflight.yml
+# Read-only Velero and CSI snapshot preflight.
+
+- name: velero preflight
+  hosts: localhost
+  gather_facts: no
+  roles:
+    - velero_preflight
