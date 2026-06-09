@@ -1,0 +1,25 @@
+---
+# Velero defaults.
+# Installation is disabled by default and requires explicit confirmation.
+
+velero_enabled: false
+velero_install_confirm: false
+velero_namespace: velero
+velero_version: v1.16.2
+
+velero_cli_source: remote
+velero_cli_url: ""
+velero_cli_local_path: files/velero/velero
+velero_cli_install_path: /usr/local/bin/velero
+
+velero_provider: aws
+velero_bucket: "{{ backup_s3_bucket | default('') }}"
+velero_prefix: "{{ backup_s3_prefix | default('velero') }}"
+velero_backup_location_name: default
+velero_snapshot_location_name: default
+velero_use_node_agent: true
+velero_use_csi_snapshots: true
+velero_use_volume_snapshots: true
+
+velero_plugin_aws_image: velero/velero-plugin-for-aws:v1.12.1
+velero_plugin_csi_image: velero/velero-plugin-for-csi:v0.7.1
