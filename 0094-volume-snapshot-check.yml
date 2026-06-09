@@ -1,0 +1,9 @@
+---
+# 0094-volume-snapshot-check.yml
+# Read-only CSI VolumeSnapshot validation.
+
+- name: volume snapshot check
+  hosts: localhost
+  gather_facts: no
+  roles:
+    - volume_snapshot_check
