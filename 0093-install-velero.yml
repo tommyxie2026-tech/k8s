@@ -1,0 +1,10 @@
+---
+# 0093-install-velero.yml
+# Guarded Velero install plan.
+# Requires velero_enabled=true and velero_install_confirm=true.
+
+- name: install velero
+  hosts: localhost
+  gather_facts: no
+  roles:
+    - velero_install
