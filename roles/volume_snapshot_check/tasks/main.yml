@@ -1,0 +1,66 @@
+---
+# VolumeSnapshot validation role.
+# Read-only checks for snapshot CRDs, snapshot classes, CSI drivers and existing snapshots.
+
+- name: Check snapshot CRDs
+  shell: |
+    set +e
+    {{ download_arch_dir }}/kubectl get crd volumesnapshots.snapshot.storage.k8s.io volumesnapshotcontents.snapshot.storage.k8s.io volumesnapshotclasses.snapshot.storage.k8s.io \
+      --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  args:
+    executable: /bin/bash
+  register: snapshot_crds
+  changed_when: false
+  failed_when: false
+  run_once: true
+
+- name: Get VolumeSnapshotClass list
+  command: >
+    {{ download_arch_dir }}/kubectl get volumesnapshotclass -o wide
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: snapshot_classes
+  changed_when: false
+  failed_when: false
+  run_once: true
+
+- name: Get CSI drivers
+  command: >
+    {{ download_arch_dir }}/kubectl get csidrivers -o wide
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: snapshot_csidrivers
+  changed_when: false
+  failed_when: false
+  run_once: true
+
+- name: Get existing VolumeSnapshots
+  command: >
+    {{ download_arch_dir }}/kubectl get volumesnapshot -A -o wide
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: existing_snapshots
+  changed_when: false
+  failed_when: false
+  run_once: true
+
+- name: Print VolumeSnapshot report
+  debug:
+    msg:
+      - "===== Snapshot CRDs ====="
+      - "{{ snapshot_crds.stdout_lines | default([]) }}"
+      - "===== VolumeSnapshotClass ====="
+      - "{{ snapshot_classes.stdout_lines | default([]) }}"
+      - "===== CSI Drivers ====="
+      - "{{ snapshot_csidrivers.stdout_lines | default([]) }}"
+      - "===== Existing VolumeSnapshots ====="
+      - "{{ existing_snapshots.stdout_lines | default([]) }}"
+  run_once: true
+
+- name: Print snapshot recommendations
+  debug:
+    msg:
+      - "Recommendations:"
+      - "1. Ceph RBD is preferred for VM root disk snapshots."
+      - "2. CephFS is suitable for shared file data."
+      - "3. NFS snapshot capability depends on the CSI implementation."
+      - "4. iSCSI snapshot capability depends on the storage backend."
+      - "5. Always test snapshot restore before using it for production VM backup."
+  run_once: true
