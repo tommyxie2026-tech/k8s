@@ -1,0 +1,54 @@
+---
+# Velero install role.
+# Safe by default: only prints the install plan unless velero_enabled=true and velero_install_confirm=true.
+
+- name: Validate Velero install switches
+  assert:
+    that:
+      - velero_enabled | default(false) | bool
+      - velero_install_confirm | default(false) | bool
+    fail_msg: "Velero install requires velero_enabled=true and velero_install_confirm=true."
+    success_msg: "Velero install switches confirmed."
+  run_once: true
+
+- name: Validate Velero object storage config
+  assert:
+    that:
+      - velero_bucket | default('') | length > 0
+      - backup_s3_endpoint | default('') | length > 0
+    fail_msg: "Velero requires velero_bucket and backup_s3_endpoint."
+  run_once: true
+
+- name: Print Velero install plan
+  debug:
+    msg:
+      - "Velero namespace={{ velero_namespace }}"
+      - "Velero version={{ velero_version }}"
+      - "Provider={{ velero_provider }}"
+      - "Bucket={{ velero_bucket }}"
+      - "Prefix={{ velero_prefix }}"
+      - "Node agent={{ velero_use_node_agent }}"
+      - "CSI snapshots={{ velero_use_csi_snapshots }}"
+      - "This role currently validates and prints the install plan. Actual install command will be enabled after credential handling is finalized."
+  run_once: true
+
+- name: Ensure Velero namespace exists
+  command: >
+    {{ download_arch_dir }}/kubectl create namespace {{ velero_namespace }}
+    --dry-run=client -o yaml
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: velero_namespace_manifest
+  changed_when: false
+  run_once: true
+
+- name: Print Velero namespace manifest preview
+  debug:
+    var: velero_namespace_manifest.stdout_lines
+  run_once: true
+
+- name: Print Velero install command preview
+  debug:
+    msg:
+      - "velero install --provider {{ velero_provider }} --bucket {{ velero_bucket }} --prefix {{ velero_prefix }} --plugins {{ velero_plugin_aws_image }},{{ velero_plugin_csi_image }} --use-node-agent={{ velero_use_node_agent }} --features=EnableCSI"
+      - "Credentials are intentionally not written by this role in V1."
+  run_once: true
