@@ -1,0 +1,31 @@
+---
+# KubeVirt VM restore planning role.
+# Safe by default: validates restore inputs and prints a restore plan.
+
+- name: Validate VM restore switches
+  assert:
+    that:
+      - vm_restore_enabled | default(false) | bool
+      - vm_restore_apply_confirm | default(false) | bool
+      - vm_restore_name | default('') | length > 0
+      - vm_restore_confirm_phrase | default('') == 'RESTORE_VM'
+    fail_msg: "VM restore requires vm_restore_enabled=true, vm_restore_apply_confirm=true, vm_restore_name and vm_restore_confirm_phrase=RESTORE_VM."
+    success_msg: "VM restore switches confirmed."
+  run_once: true
+
+- name: Check Velero Restore CRD exists
+  command: >
+    {{ download_arch_dir }}/kubectl get crd restores.velero.io
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: vm_restore_crd
+  changed_when: false
+  run_once: true
+
+- name: Print VM restore plan
+  debug:
+    msg:
+      - "Velero restore plan preview:"
+      - "velero restore create {{ vm_restore_name }} --from-backup <backup-name>{% if vm_restore_target_namespace | default('') | length > 0 %} --namespace-mappings {{ vm_backup_namespace | default('default') }}:{{ vm_restore_target_namespace }}{% endif %}"
+      - "Before restore, verify target namespace, StorageClass mapping, KubeVirt/CDI availability, and VM name conflicts."
+      - "This role does not create a Velero Restore CR in V1; it validates and prints the plan."
+  run_once: true
