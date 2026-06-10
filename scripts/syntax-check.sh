@@ -49,6 +49,7 @@ COMMON_PLAYBOOKS=(
   0077-capacity-planning.yml
   0078-cluster-admission-baseline.yml
   0080-observability-preflight.yml
+  0090-etcd-backup.yml
   0091-etcd-restore-preflight.yml
   0092-velero-preflight.yml
   0093-install-velero.yml
@@ -107,6 +108,7 @@ case "${MODE}" in
       0077-capacity-planning.yml
       0078-cluster-admission-baseline.yml
       0080-observability-preflight.yml
+      0090-etcd-backup.yml
       0091-etcd-restore-preflight.yml
       0092-velero-preflight.yml
       0093-install-velero.yml
