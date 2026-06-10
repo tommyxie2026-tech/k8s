@@ -1,0 +1,9 @@
+---
+# 0096-kubevirt-vm-restore.yml
+# Guarded KubeVirt VM restore plan.
+
+- name: kubevirt vm restore
+  hosts: localhost
+  gather_facts: no
+  roles:
+    - kubevirt_vm_restore
