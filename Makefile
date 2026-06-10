@@ -1,4 +1,4 @@
-.PHONY: syntax-check syntax-check-ha syntax-check-single syntax-check-single-to-ha storage-preflight install-csi install-storageclass storage-health-check storage-migration-check storage-pvc-validate kubevirt-preflight install-kubevirt kubevirt-health-check kubevirt-smoke-test install-kubevirt-cdi kubevirt-datavolume-smoke-test install-virtctl kubevirt-vm-ops node-pool-labels node-pool-health-check storage-pool-health-check scheduling-policy-check storageclass-governance failure-domain-check capacity-planning observability-preflight preflight-container deploy-container deploy-container-offline deploy-single deploy-single-offline deploy-ha deploy-ha-offline migrate-single-to-ha-preflight migrate-single-to-ha-backup migrate-single-to-ha-etcd-preflight migrate-single-to-ha-expand-etcd migrate-single-to-ha-renew-apiserver-cert migrate-single-to-ha-expand-control-plane migrate-single-to-ha-enable-ha-lb migrate-single-to-ha-switch-kubeconfigs-to-vip migrate-single-to-ha cleanup-container smoke-test
+.PHONY: syntax-check syntax-check-ha syntax-check-single syntax-check-single-to-ha storage-preflight install-csi install-storageclass storage-health-check storage-migration-check storage-pvc-validate kubevirt-preflight install-kubevirt kubevirt-health-check kubevirt-smoke-test install-kubevirt-cdi kubevirt-datavolume-smoke-test install-virtctl kubevirt-vm-ops node-pool-labels node-pool-health-check storage-pool-health-check scheduling-policy-check storageclass-governance failure-domain-check capacity-planning observability-preflight etcd-restore-preflight velero-preflight install-velero volume-snapshot-check kubevirt-vm-backup kubevirt-vm-restore preflight-container deploy-container deploy-container-offline deploy-single deploy-single-offline deploy-ha deploy-ha-offline migrate-single-to-ha-preflight migrate-single-to-ha-backup migrate-single-to-ha-etcd-preflight migrate-single-to-ha-expand-etcd migrate-single-to-ha-renew-apiserver-cert migrate-single-to-ha-expand-control-plane migrate-single-to-ha-enable-ha-lb migrate-single-to-ha-switch-kubeconfigs-to-vip migrate-single-to-ha cleanup-container smoke-test
 
 INVENTORY ?= inventories/hosts-container.yml
 KUBECONFIG_PATH ?= $(HOME)/.kube/config
@@ -20,6 +20,21 @@ NODE_POOLS_MANAGE_TAINTS ?= false
 STORAGE_POOLS_ENABLED ?= true
 
 OBSERVABILITY_ENABLED ?= true
+
+BACKUP_ENABLED ?= false
+ETCD_RESTORE_ENABLED ?= false
+ETCD_RESTORE_SNAPSHOT_PATH ?=
+VELERO_ENABLED ?= false
+VELERO_INSTALL_CONFIRM ?= false
+VM_BACKUP_ENABLED ?= false
+VM_BACKUP_APPLY_CONFIRM ?= false
+VM_BACKUP_NAMESPACE ?= default
+VM_BACKUP_NAME ?=
+VM_RESTORE_ENABLED ?= false
+VM_RESTORE_APPLY_CONFIRM ?= false
+VM_RESTORE_NAME ?=
+VM_RESTORE_TARGET_NAMESPACE ?=
+VM_RESTORE_CONFIRM_PHRASE ?=
 
 syntax-check:
 	INVENTORY=$(INVENTORY) bash scripts/syntax-check.sh
@@ -111,6 +126,38 @@ capacity-planning:
 observability-preflight:
 	ansible-playbook -i $(INVENTORY) 0080-observability-preflight.yml \
 		-e observability_enabled=$(OBSERVABILITY_ENABLED)
+
+etcd-restore-preflight:
+	ansible-playbook -i $(INVENTORY) 0091-etcd-restore-preflight.yml \
+		-e backup_enabled=$(BACKUP_ENABLED) \
+		-e etcd_restore_enabled=$(ETCD_RESTORE_ENABLED) \
+		-e etcd_restore_snapshot_path=$(ETCD_RESTORE_SNAPSHOT_PATH)
+
+velero-preflight:
+	ansible-playbook -i $(INVENTORY) 0092-velero-preflight.yml
+
+install-velero:
+	ansible-playbook -i $(INVENTORY) 0093-install-velero.yml \
+		-e velero_enabled=$(VELERO_ENABLED) \
+		-e velero_install_confirm=$(VELERO_INSTALL_CONFIRM)
+
+volume-snapshot-check:
+	ansible-playbook -i $(INVENTORY) 0094-volume-snapshot-check.yml
+
+kubevirt-vm-backup:
+	ansible-playbook -i $(INVENTORY) 0095-kubevirt-vm-backup.yml \
+		-e vm_backup_enabled=$(VM_BACKUP_ENABLED) \
+		-e vm_backup_apply_confirm=$(VM_BACKUP_APPLY_CONFIRM) \
+		-e vm_backup_namespace=$(VM_BACKUP_NAMESPACE) \
+		-e vm_backup_name=$(VM_BACKUP_NAME)
+
+kubevirt-vm-restore:
+	ansible-playbook -i $(INVENTORY) 0096-kubevirt-vm-restore.yml \
+		-e vm_restore_enabled=$(VM_RESTORE_ENABLED) \
+		-e vm_restore_apply_confirm=$(VM_RESTORE_APPLY_CONFIRM) \
+		-e vm_restore_name=$(VM_RESTORE_NAME) \
+		-e vm_restore_target_namespace=$(VM_RESTORE_TARGET_NAMESPACE) \
+		-e vm_restore_confirm_phrase=$(VM_RESTORE_CONFIRM_PHRASE)
 
 preflight-container:
 	ansible-playbook -i inventories/hosts-container.yml 0000-container-infra.yml
