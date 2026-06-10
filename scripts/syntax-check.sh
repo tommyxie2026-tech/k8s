@@ -49,6 +49,12 @@ COMMON_PLAYBOOKS=(
   0077-capacity-planning.yml
   0078-cluster-admission-baseline.yml
   0080-observability-preflight.yml
+  0091-etcd-restore-preflight.yml
+  0092-velero-preflight.yml
+  0093-install-velero.yml
+  0094-volume-snapshot-check.yml
+  0095-kubevirt-vm-backup.yml
+  0096-kubevirt-vm-restore.yml
   0090-stop-services.yml
   0091-reset-node-runtime.yml
 )
@@ -101,6 +107,12 @@ case "${MODE}" in
       0077-capacity-planning.yml
       0078-cluster-admission-baseline.yml
       0080-observability-preflight.yml
+      0091-etcd-restore-preflight.yml
+      0092-velero-preflight.yml
+      0093-install-velero.yml
+      0094-volume-snapshot-check.yml
+      0095-kubevirt-vm-backup.yml
+      0096-kubevirt-vm-restore.yml
       0050-single-to-ha.yml
     )
     ;;
