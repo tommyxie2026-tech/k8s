@@ -1,0 +1,18 @@
+---
+# KubeVirt VM backup/restore defaults.
+# Safe by default: backup and restore actions are disabled.
+
+vm_backup_enabled: false
+vm_backup_apply_confirm: false
+vm_backup_namespace: default
+vm_backup_name: ""
+vm_backup_include_datavolumes: true
+vm_backup_include_pvcs: true
+vm_backup_tool: velero
+vm_backup_ttl: 720h0m0s
+
+vm_restore_enabled: false
+vm_restore_apply_confirm: false
+vm_restore_name: ""
+vm_restore_target_namespace: ""
+vm_restore_confirm_phrase: ""
