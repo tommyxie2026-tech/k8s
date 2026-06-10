@@ -1,0 +1,9 @@
+---
+# 0095-kubevirt-vm-backup.yml
+# Guarded KubeVirt VM backup plan.
+
+- name: kubevirt vm backup
+  hosts: localhost
+  gather_facts: no
+  roles:
+    - kubevirt_vm_backup
