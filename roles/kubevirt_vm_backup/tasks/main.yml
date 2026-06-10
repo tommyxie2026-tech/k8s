@@ -1,0 +1,63 @@
+---
+# KubeVirt VM backup planning role.
+# Safe by default: validates VM/DataVolume/PVC relationships and prints a Velero backup plan.
+
+- name: Validate VM backup switches
+  assert:
+    that:
+      - vm_backup_enabled | default(false) | bool
+      - vm_backup_apply_confirm | default(false) | bool
+      - vm_backup_name | default('') | length > 0
+      - vm_backup_namespace | default('') | length > 0
+    fail_msg: "VM backup requires vm_backup_enabled=true, vm_backup_apply_confirm=true, vm_backup_namespace and vm_backup_name."
+    success_msg: "VM backup switches confirmed."
+  run_once: true
+
+- name: Check KubeVirt VM exists
+  command: >
+    {{ download_arch_dir }}/kubectl -n {{ vm_backup_namespace }} get vm {{ vm_backup_name }} -o yaml
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: vm_backup_vm_yaml
+  changed_when: false
+  run_once: true
+
+- name: Check related DataVolumes
+  shell: |
+    set +e
+    {{ download_arch_dir }}/kubectl -n {{ vm_backup_namespace }} get datavolume -o wide \
+      --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig || true
+  args:
+    executable: /bin/bash
+  register: vm_backup_dv_list
+  changed_when: false
+  failed_when: false
+  run_once: true
+
+- name: Check related PVCs
+  command: >
+    {{ download_arch_dir }}/kubectl -n {{ vm_backup_namespace }} get pvc -o wide
+    --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig
+  register: vm_backup_pvc_list
+  changed_when: false
+  failed_when: false
+  run_once: true
+
+- name: Print VM backup inventory
+  debug:
+    msg:
+      - "===== VM YAML ====="
+      - "{{ vm_backup_vm_yaml.stdout_lines | default([]) }}"
+      - "===== DataVolumes in namespace ====="
+      - "{{ vm_backup_dv_list.stdout_lines | default([]) }}"
+      - "===== PVCs in namespace ====="
+      - "{{ vm_backup_pvc_list.stdout_lines | default([]) }}"
+  run_once: true
+
+- name: Print Velero VM backup plan
+  debug:
+    msg:
+      - "Velero backup plan preview:"
+      - "velero backup create {{ vm_backup_name }}-backup --include-namespaces {{ vm_backup_namespace }} --selector kubevirt.io/domain={{ vm_backup_name }} --ttl {{ vm_backup_ttl }}"
+      - "For production, verify labels/selectors include VM, DataVolume and PVC resources before execution."
+      - "This role does not create a Velero Backup CR in V1; it validates and prints the plan."
+  run_once: true
