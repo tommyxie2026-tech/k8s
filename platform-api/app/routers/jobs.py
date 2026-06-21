@@ -1,18 +1,18 @@
 from fastapi import APIRouter, HTTPException
 
-from app.services.executor import executor
+from app.core.task_store import task_store
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 
 @router.get("")
 def list_jobs():
-    return executor.list_jobs()
+    return task_store.list()
 
 
-@router.get("/{job_id}")
-def get_job(job_id: str):
-    job = executor.get_job(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="job not found")
-    return job
+@router.get("/{task_id}")
+def get_job(task_id: str):
+    task = task_store.get(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="task not found")
+    return task
