@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.services.executor import executor
+from app.core.executor import executor
 
 router = APIRouter(prefix="/storagepools", tags=["storagepools"])
 
@@ -12,14 +12,14 @@ def list_storagepools() -> dict[str, list[str]]:
 
 @router.post("/health-check")
 def health_check():
-    return executor.run_playbook("storagepool.health_check", "0073-storage-pool-health-check.yml", {"storage_pools_enabled": True})
+    return executor.submit("0073-storage-pool-health-check.yml", {"storage_pools_enabled": True})
 
 
 @router.post("/storageclass-governance")
 def storageclass_governance():
-    return executor.run_playbook("storagepool.storageclass_governance", "0075-storageclass-governance.yml", {"storage_pools_enabled": True})
+    return executor.submit("0075-storageclass-governance.yml", {"storage_pools_enabled": True})
 
 
 @router.post("/volume-snapshot-check")
 def volume_snapshot_check():
-    return executor.run_playbook("storagepool.volume_snapshot_check", "0094-volume-snapshot-check.yml")
+    return executor.submit("0094-volume-snapshot-check.yml")
