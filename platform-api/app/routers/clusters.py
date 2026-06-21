@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.services.executor import executor
+from app.core.executor import executor
 
 router = APIRouter(prefix="/clusters", tags=["clusters"])
 
@@ -12,9 +12,9 @@ def current_cluster() -> dict[str, str]:
 
 @router.post("/syntax-check")
 def syntax_check():
-    return executor.run_playbook("cluster.syntax_check", "0000-preflight.yml")
+    return executor.submit("0000-preflight.yml")
 
 
 @router.post("/preflight")
 def preflight():
-    return executor.run_playbook("cluster.preflight", "0000-preflight.yml")
+    return executor.submit("0000-preflight.yml")
