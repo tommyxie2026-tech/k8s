@@ -1,18 +1,20 @@
 FROM python:3.12-slim
 
-WORKDIR /app
+WORKDIR /workspace
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ansible ca-certificates curl openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
-COPY platform-api/requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+COPY platform-api/requirements.txt /workspace/platform-api/requirements.txt
+RUN pip install --no-cache-dir -r /workspace/platform-api/requirements.txt
 
-COPY platform-api/app /app/app
+# Copy the whole repository because the API executes existing playbooks, roles, inventories and scripts.
+COPY . /workspace
 
 ENV PYTHONUNBUFFERED=1
-ENV PYTHONPATH=/app
+ENV PYTHONPATH=/workspace/platform-api
+ENV PROJECT_ROOT=/workspace
 
 EXPOSE 8080
 
