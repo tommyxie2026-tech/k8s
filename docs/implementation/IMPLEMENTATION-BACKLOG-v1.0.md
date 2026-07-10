@@ -18,10 +18,10 @@ DONE
 
 Status: IN_PROGRESS
 
-- [ ] T001 Define unified Executor protocol and ExecutionResult — IN_PROGRESS
-- [ ] T002 Implement AnsibleExecutor — IN_PROGRESS
-- [ ] T003 Implement ExecutorRegistry — IN_PROGRESS
-- [ ] T004 Define unified Task resource
+- [x] T001 Define unified Executor protocol and ExecutionResult — DONE
+- [x] T002 Implement AnsibleExecutor — DONE
+- [x] T003 Implement ExecutorRegistry — DONE
+- [ ] T004 Define unified Task resource — NEXT
 - [ ] T005 Implement TaskRepository
 - [ ] T006 Implement RuntimeService
 - [ ] T007 Migrate WorkflowEngine to RuntimeService
@@ -79,13 +79,27 @@ Status: TODO
 
 ## Current Sprint S0
 
-1. T001 Executor protocol.
-2. T002 AnsibleExecutor.
-3. T003 ExecutorRegistry.
-4. T004 unified Task schema.
-5. T020-T023 SQLite persistence baseline.
-6. T006 RuntimeService.
-7. Migrate one non-destructive endpoint as vertical slice.
+1. T004 unified Task schema.
+2. T020-T023 SQLite persistence baseline.
+3. T006 RuntimeService.
+4. T007 WorkflowEngine migration.
+5. Migrate one non-destructive endpoint as vertical slice.
+
+## Completed Evidence
+
+### T001-T003
+
+```text
+Design references: FROZEN-P0-02, FROZEN-P4
+Files:
+- platform-api/app/executors/base.py
+- platform-api/app/executors/ansible.py
+- platform-api/app/executors/registry.py
+Compatibility impact: additive only; legacy executors remain active
+Migration impact: none
+Tests: pending with RuntimeService vertical slice
+Acceptance evidence: executor-neutral request/result, Ansible implementation and registry exist
+```
 
 ## Update Rule
 
