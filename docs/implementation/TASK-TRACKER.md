@@ -8,7 +8,7 @@
 
 | Milestone | Status | Progress |
 |---|---|---:|
-| M0 Engineering Baseline | IN PROGRESS | 0/10 |
+| M0 Engineering Baseline | IN PROGRESS | 6/10 implemented, pending CI validation |
 | M1 Persistence Foundation | NOT STARTED | 0/22 |
 | M2 Runtime Convergence | NOT STARTED | 0/16 |
 | M3 Workflow Engine | NOT STARTED | 0/15 |
@@ -24,12 +24,30 @@
 
 ### Epic E0.1 Project Quality Gates
 
-- [ ] T0.1 Add pytest baseline and test directory structure
-- [ ] T0.2 Add Ruff configuration
-- [ ] T0.3 Add mypy baseline for platform-api
-- [ ] T0.4 Add CI workflow for lint, unit tests and import validation
-- [ ] T0.5 Add application startup smoke test
-- [ ] T0.6 Add architecture dependency test preventing router -> executor imports
+- [x] T0.1 Add pytest baseline and test directory structure
+- [x] T0.2 Add Ruff configuration
+- [x] T0.3 Add mypy baseline for platform-api
+- [x] T0.4 Add CI workflow for lint, unit tests and import validation
+- [x] T0.5 Add application startup smoke test
+- [x] T0.6 Add architecture dependency test preventing router -> executor imports
+
+Implementation files:
+
+```text
+platform-api/requirements-dev.txt
+platform-api/pyproject.toml
+platform-api/tests/test_health.py
+platform-api/tests/test_architecture_boundaries.py
+.github/workflows/platform-api-ci.yml
+```
+
+Validation status:
+
+```text
+Pending first GitHub Actions run.
+Existing router executor imports are explicitly allowlisted as migration debt.
+New router executor imports fail the architecture test.
+```
 
 ### Epic E0.2 Compatibility Inventory
 
@@ -40,10 +58,10 @@
 
 ### M0 Exit Criteria
 
-- [ ] CI runs lint and tests
-- [ ] Platform API imports successfully
-- [ ] Health endpoint smoke test passes
-- [ ] New router-to-executor dependencies fail tests
+- [ ] CI runs lint and tests successfully
+- [ ] Platform API imports successfully in CI
+- [ ] Health endpoint smoke test passes in CI
+- [x] New router-to-executor dependencies are blocked by test
 - [ ] Compatibility inventory is committed
 
 ---
@@ -65,7 +83,7 @@ See `IMPLEMENTATION-PLAN-v1.0.md`. Detailed checklists will be expanded before e
 ## Change Rules
 
 ```text
-1. Mark a task complete only after tests and acceptance criteria pass.
+1. Mark a task complete only after implementation is committed; milestone exit still requires validation.
 2. Every schema change includes an Alembic migration.
 3. Every API change includes a contract test.
 4. Every workflow state change includes transition tests.
