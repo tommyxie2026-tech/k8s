@@ -68,15 +68,13 @@ erDiagram
     CLUSTER ||--o{ WORKFLOW : executes
 
     STORAGE_POOL ||--o{ STORAGE_CLASS : provides
+    PLUGIN ||--o{ STORAGE_POOL : implements
 
     VM ||--o{ BACKUP : protected_by
     VM ||--o{ WORKFLOW : targeted_by
 
     WORKFLOW ||--o{ TASK : contains
     WORKFLOW ||--o{ BACKUP : produces
-
-    PLUGIN ||--o{ STORAGE_POOL : implements
-    PLUGIN ||--o{ RESOURCE_EVENT : emits
 
     CLUSTER ||--o{ RESOURCE_EVENT : emits
     NODE ||--o{ RESOURCE_EVENT : emits
@@ -86,6 +84,7 @@ erDiagram
     BACKUP ||--o{ RESOURCE_EVENT : emits
     WORKFLOW ||--o{ RESOURCE_EVENT : emits
     TASK ||--o{ RESOURCE_EVENT : emits
+    PLUGIN ||--o{ RESOURCE_EVENT : emits
 ```
 
 ---
@@ -120,272 +119,164 @@ Rules:
 
 ## 5. Node Relationships
 
-Node represents compute capacity inside a Cluster.
-
 ```text
 Node N -> 1 Cluster
-Node N <-> N StoragePool optional
-Node 1 -> N VM runtime placements optional
-```
-
-The Node-to-StoragePool relationship is many-to-many because local and distributed storage can span multiple nodes.
-
-Logical join entity:
-
-```text
-NodeStoragePool
-```
-
-Fields:
-
-```text
-node_id
-storage_pool_id
-role
-status
-created_at
-```
-
-VM placement is observed state, not a permanent ownership relationship. VM may reference current node through status, but node deletion must not cascade-delete VM.
-
----
-
-## 6. StoragePool Relationships
-
-StoragePool represents a logical backend.
-
-```text
-StoragePool N -> 1 Cluster
-StoragePool 1 -> N StorageClass
-StoragePool N <-> N Node optional
-StoragePool N -> 1 Plugin optional
+Node 1 -> N VM placement references
+Node 1 -> N ResourceEvent
 ```
 
 Rules:
 
 ```text
-1. StorageClass must reference one StoragePool.
-2. StoragePool may be plugin-backed.
-3. StoragePool deletion is blocked while active StorageClass resources reference it.
-4. StoragePool soft deletion preserves historical Backup and Audit references.
+1. Node is cluster-scoped.
+2. VM placement is a status reference, not ownership.
+3. Node deletion is blocked while running VMs are observed on the node.
+4. Historical events remain after Node soft deletion.
 ```
 
 ---
 
-## 7. StorageClass Relationships
-
-StorageClass is an independent aggregate root.
+## 6. Storage Relationships
 
 ```text
+StoragePool N -> 1 Cluster
+StoragePool 1 -> N StorageClass
+StoragePool N -> 0..1 Plugin
 StorageClass N -> 1 Cluster
 StorageClass N -> 1 StoragePool
-StorageClass 1 -> N VM disk references indirectly
 ```
 
-Direct VM-to-StorageClass foreign keys are not mandatory because VM disks may be represented inside spec JSON and external PVC/DataVolume resources.
-
-For queryability, an optional normalized relation is allowed:
+Rules:
 
 ```text
-VMStorageClass
-```
-
-Fields:
-
-```text
-vm_id
-storage_class_id
-disk_name
-pvc_name
-created_at
+1. StorageClass is an independent aggregate root.
+2. StorageClass must reference exactly one StoragePool.
+3. StoragePool deletion is blocked while active StorageClasses reference it.
+4. Plugin reference is optional for built-in providers.
+5. StorageClass deletion is blocked when active dependent VM disk references exist, unless an explicit destructive workflow is approved.
 ```
 
 ---
 
-## 8. VM Relationships
-
-VM represents a KubeVirt VM.
+## 7. VM Relationships
 
 ```text
 VM N -> 1 Cluster
 VM 1 -> N Backup
 VM 1 -> N Workflow
-VM N -> 0..1 Node current placement
-VM N <-> N StorageClass optional normalized mapping
+VM 1 -> N ResourceEvent
+VM N -> 0..1 Node observed placement
+VM N -> N StorageClass logical disk usage
 ```
 
 Rules:
 
 ```text
-1. VM deletion must not automatically delete Backup records.
-2. VM current node placement is observed status.
-3. VM start/stop/migrate/backup/restore are represented by Workflow.
-4. VM namespace and name must be unique within one Cluster.
+1. VM is uniquely identified by CPP id; cluster_id + namespace + name must also be unique among non-deleted records.
+2. Node placement belongs to VM.status and does not create ownership.
+3. VM-to-StorageClass relationship is logical and may be represented through VM disk metadata rather than a mandatory join table in V2.0.
+4. VM deletion does not delete Backup records.
+5. VM destructive operations must be represented by Workflow.
 ```
 
 ---
 
-## 9. Backup Relationships
-
-Backup is a unified resource.
+## 8. Backup Relationships
 
 ```text
 Backup N -> 1 Cluster
 Backup N -> 0..1 VM
-Backup N -> 0..1 Workflow
-Backup N -> 0..1 User creator through Workflow or direct action
-```
-
-Backup target is polymorphic.
-
-Required logical fields:
-
-```text
-target_kind
-target_id
-target_namespace optional
-target_name optional
-```
-
-Allowed target kinds:
-
-```text
-Cluster
-Namespace
-VM
-PVC
-Etcd
+Backup N -> 0..1 Workflow producer
+Backup 1 -> N ResourceEvent
 ```
 
 Rules:
 
 ```text
-1. Backup may outlive its target resource.
-2. Target deletion must not cascade-delete Backup.
-3. Backup deletion only removes catalog metadata by default; physical artifact purge is a separate Workflow.
+1. Backup supports cluster, namespace, VM, PVC and etcd scopes.
+2. target_kind + target_id define the optional protected resource.
+3. Backup must survive deletion of the target resource for restore and audit purposes.
+4. Producer Workflow may be null for externally discovered backups.
+5. Backup hard deletion is governed by retention or explicit purge workflow.
 ```
 
 ---
 
-## 10. Workflow Relationships
-
-Workflow is an orchestration aggregate root.
+## 9. Workflow and Task Relationships
 
 ```text
 Workflow N -> 0..1 Cluster
 Workflow N -> 1 User creator
 Workflow 1 -> N Task
 Workflow N -> 0..1 target resource
-Workflow 1 -> N ResourceEvent
-Workflow 1 -> N AuditEvent
-```
-
-Workflow target is polymorphic:
-
-```text
-target_kind
-target_id
-```
-
-Rules:
-
-```text
-1. Workflow owns Task lifecycle.
-2. Task may also exist without Workflow for legacy direct actions.
-3. Workflow records must not be cascade-deleted when target resources are deleted.
-4. Workflow history is retained according to retention policy.
-```
-
----
-
-## 11. Task Relationships
-
-Task represents one executable unit.
-
-```text
 Task N -> 0..1 Workflow
-Task N -> 0..1 User requester
-Task 1 -> N ResourceEvent
-Task 1 -> N AuditEvent
 ```
 
 Rules:
 
 ```text
-1. workflow_id may be null for legacy direct execution.
-2. Task deletion must not remove execution logs before retention expiry.
-3. Task status and return code are immutable after terminal state, except administrative correction events.
-```
-
-Terminal states:
-
-```text
-succeeded
-failed
-cancelled
+1. Workflow may be platform-scoped.
+2. Workflow target uses polymorphic target_kind + target_id.
+3. Task may exist without Workflow for legacy direct execution.
+4. Workflow deletion does not cascade-delete Tasks or execution history.
+5. Workflow and Task records are retained for audit and diagnosis.
+6. Task ordering within Workflow must be explicit through sequence_number.
 ```
 
 ---
 
-## 12. Plugin Relationships
-
-Plugin represents an installed capability extension.
+## 10. Plugin Relationships
 
 ```text
-Plugin 1 -> N StoragePool optional
+Plugin 1 -> N StoragePool
 Plugin 1 -> N ResourceEvent
-Plugin 1 -> N AuditEvent
 ```
 
-Plugin capability relations are logical rather than hard-coded by dedicated tables in V2.0.
-
-Recommended fields:
+Rules:
 
 ```text
-category
-provider
-version
-capabilities
+1. Plugin may provide multiple capabilities.
+2. Disabling a Plugin is blocked when active resources depend on it, unless force mode is explicitly approved.
+3. Plugin deletion does not delete resources created by that Plugin.
+4. Resource references to Plugin use stable plugin id and version metadata.
 ```
-
-Plugin deletion is blocked while active resources depend on it.
 
 ---
 
-## 13. User Relationships
-
-User represents an authenticated actor.
+## 11. User Relationships
 
 ```text
 User 1 -> N Workflow
-User 1 -> N Task optional
 User 1 -> N AuditEvent
-User 1 -> N ResourceEvent optional actor
 ```
 
-User deletion should normally become disablement or soft deletion. Historical Workflow and Audit references must remain valid.
+Rules:
+
+```text
+1. User deletion is soft deletion or disablement.
+2. Historical Workflow and AuditEvent records keep actor identity snapshots.
+3. Foreign keys to User should be nullable or use restricted deletion to preserve history.
+```
 
 ---
 
-## 14. AuditEvent Entity
+## 12. AuditEvent Entity
 
-AuditEvent is append-only.
+AuditEvent is append-only and not a normal mutable Resource.
 
 Logical fields:
 
 ```yaml
 AuditEvent:
   id: UUIDv7
-  actor_user_id: UUIDv7|null
-  actor_type: user | service | system | plugin
+  actor_id: string|null
+  actor_name: string
   action: string
   target_kind: string|null
-  target_id: UUIDv7|null
-  workflow_id: UUIDv7|null
-  task_id: UUIDv7|null
-  result: success | denied | failed
+  target_id: string|null
+  workflow_id: string|null
+  result: success | failure | denied
   request_id: string|null
-  source_ip: string|null
   details: object
   created_at: datetime
 ```
@@ -393,15 +284,15 @@ AuditEvent:
 Rules:
 
 ```text
-1. Append-only.
-2. No updated_at.
-3. No normal soft deletion.
-4. Foreign references may be nullable to preserve records after target purge.
+1. AuditEvent cannot be updated in place.
+2. AuditEvent is not soft-deleted by resource deletion.
+3. actor_name is snapshotted to preserve history if User changes.
+4. target references are logical and may point to soft-deleted resources.
 ```
 
 ---
 
-## 15. ResourceEvent Entity
+## 13. ResourceEvent Entity
 
 ResourceEvent records lifecycle and state transitions.
 
@@ -410,183 +301,138 @@ Logical fields:
 ```yaml
 ResourceEvent:
   id: UUIDv7
-  event_type: string
   resource_kind: string
-  resource_id: UUIDv7
-  actor_user_id: UUIDv7|null
-  workflow_id: UUIDv7|null
-  task_id: UUIDv7|null
+  resource_id: string
+  event_type: string
+  source: string
+  reason: string|null
+  message: string|null
   generation: integer|null
   resource_version: string|null
-  payload: object
+  payload: object|null
   created_at: datetime
 ```
 
 Rules:
 
 ```text
-1. Append-only.
-2. Event order is defined by created_at plus id.
-3. ResourceEvent is not a substitute for current Resource status.
-4. Event replay may support future diagnostics but is not required as full event sourcing in V2.0.
+1. ResourceEvent is append-only.
+2. ResourceEvent may refer to soft-deleted resources.
+3. ResourceEvent is the source for WebSocket, monitoring and lifecycle history.
+4. High-volume status samples belong in metrics, not ResourceEvent.
 ```
 
 ---
 
-## 16. Polymorphic References
+## 14. Polymorphic References
 
-CPP uses polymorphic references for Workflow targets, Backup targets, Audit targets and ResourceEvent targets.
+CPP uses logical polymorphic references where a record may target different resource kinds.
 
-Pattern:
-
-```text
-target_kind
-target_id
-```
-
-Decision rationale:
+Examples:
 
 ```text
-1. Avoid one nullable foreign key per resource type.
-2. Support future resource kinds without schema explosion.
-3. Keep Workflow, Backup and Audit generic.
-```
-
-Constraint:
-
-Application-layer Repository and Service validation must verify that target_kind and target_id resolve to a valid resource when required.
-
----
-
-## 17. Deletion and Referential Integrity
-
-Default policy:
-
-```text
-Soft delete resources
-Restrict destructive parent deletion
-Preserve historical Workflow, Task, Backup, Event and Audit references
-```
-
-Recommended referential actions:
-
-```text
-Cluster -> Node: RESTRICT while active
-Cluster -> StoragePool: RESTRICT while active
-StoragePool -> StorageClass: RESTRICT while active
-Workflow -> Task: preserve and soft-delete together only by retention job
-User -> AuditEvent: SET NULL on hard purge
-Target Resource -> Backup: NO CASCADE
-Target Resource -> Workflow: NO CASCADE
-Target Resource -> ResourceEvent: NO CASCADE
-```
-
----
-
-## 18. Uniqueness Rules
-
-Logical uniqueness constraints:
-
-```text
-Cluster.name unique among non-deleted clusters
-Node(cluster_id, hostname) unique among non-deleted nodes
-StoragePool(cluster_id, name) unique among non-deleted pools
-StorageClass(cluster_id, name) unique among non-deleted classes
-VM(cluster_id, namespace, name) unique among non-deleted VMs
-Plugin(name, version) unique
-User.username unique among active users
-```
-
-Soft-deleted rows require partial unique indexes in PostgreSQL or equivalent application enforcement in SQLite.
-
----
-
-## 19. Aggregate Boundaries
-
-Frozen candidates for aggregate roots:
-
-```text
-Cluster
-Node
-StoragePool
-StorageClass
-VM
-Backup
-Workflow
-Task
-Plugin
-User
-```
-
-Supporting entities:
-
-```text
-NodeStoragePool
-VMStorageClass
-AuditEvent
-ResourceEvent
+Workflow.target_kind + Workflow.target_id
+Backup.target_kind + Backup.target_id
+AuditEvent.target_kind + AuditEvent.target_id
+ResourceEvent.resource_kind + ResourceEvent.resource_id
 ```
 
 Rules:
 
 ```text
-1. Aggregate roots have repositories.
-2. Join entities are managed through owning service methods.
-3. AuditEvent and ResourceEvent use append-only repositories.
+1. These references cannot rely only on database foreign keys.
+2. Repository and service layers must validate target existence and allowed kinds.
+3. References remain valid for soft-deleted targets.
+4. Public APIs must expose both kind and id.
 ```
 
 ---
 
-## 20. Consistency Model
+## 15. Soft Deletion and Cascade Rules
 
-Strong local consistency:
-
-```text
-Resource metadata/spec/status update
-Workflow creation plus initial Task set
-Task terminal status plus corresponding Event
-```
-
-Eventual consistency:
+Default behavior:
 
 ```text
-External Kubernetes observed state
-VM placement status
-Storage capacity status
-Monitoring projection
-WebSocket projection
+Resources -> soft delete
+Workflow/Task -> retained
+AuditEvent/ResourceEvent -> append-only retained
 ```
 
-Cross-resource infrastructure operations use Saga workflows.
+Cascade policy:
+
+```text
+1. No automatic destructive cascade across aggregate roots.
+2. Cluster deletion requires preflight and explicit workflow.
+3. StoragePool deletion is restricted by active StorageClass references.
+4. VM deletion does not delete backups, tasks, workflows or events.
+5. User disablement does not remove historical ownership or audit records.
+```
 
 ---
 
-## 21. Review Decisions Required
+## 16. Uniqueness Rules
 
-Before freezing P2-02, confirm:
+Candidate logical uniqueness constraints:
 
 ```text
-1. Cluster is the top-level infrastructure aggregate.
+Cluster.name unique among non-deleted records
+Node(cluster_id, hostname) unique among non-deleted records
+StoragePool(cluster_id, name) unique among non-deleted records
+StorageClass(cluster_id, name) unique among non-deleted records
+VM(cluster_id, namespace, name) unique among non-deleted records
+Plugin(name, version) unique among non-deleted records
+User.username unique among non-deleted records
+```
+
+Workflow, Task, Backup, AuditEvent and ResourceEvent rely primarily on globally unique IDs.
+
+---
+
+## 17. Ownership Matrix
+
+| Entity | Aggregate Root | Parent Scope | Deletion Behavior |
+|---|---|---|---|
+| Cluster | Yes | Platform | Restricted workflow |
+| Node | Yes | Cluster | Restricted/soft delete |
+| StoragePool | Yes | Cluster | Restricted/soft delete |
+| StorageClass | Yes | Cluster | Restricted/soft delete |
+| VM | Yes | Cluster | Workflow/soft delete |
+| Backup | Yes | Cluster | Retention/purge workflow |
+| Workflow | Yes | Platform or Cluster | Retained |
+| Task | Yes | Optional Workflow | Retained |
+| Plugin | Yes | Platform | Restricted/soft delete |
+| User | Yes | Platform | Disable/soft delete |
+| AuditEvent | Append-only | Platform | Retained |
+| ResourceEvent | Append-only | Resource | Retained |
+
+---
+
+## 18. Review Decisions
+
+Freeze candidates:
+
+```text
+1. Core entity set is accepted.
 2. StorageClass remains an independent aggregate root.
-3. Workflow and Backup use polymorphic target_kind/target_id.
-4. Task may exist without Workflow for legacy operations.
-5. Backup, Workflow, Task, AuditEvent and ResourceEvent survive target deletion.
-6. NodeStoragePool and VMStorageClass are optional normalized join entities.
-7. ResourceEvent is append-only history, not full event sourcing in V2.0.
-8. Parent deletion uses RESTRICT rather than cascade for active resources.
+3. Task may exist without Workflow.
+4. Workflow and event targets use kind + id polymorphic references.
+5. No automatic destructive cascade across aggregate roots.
+6. AuditEvent and ResourceEvent are append-only retained entities.
+7. Backup survives target resource deletion.
+8. Cluster deletion requires explicit preflight workflow.
 ```
 
 ---
 
-## 22. Deferred To P2-03/P2-04
+## 19. Deferred To P2-03/P2-04
 
 ```text
 SQL column types
-JSON versus normalized field choices
-Concrete foreign keys
-Indexes and partial indexes
-SQLite compatibility rules
-PostgreSQL-specific optimization
-Alembic migration files
-Retention and partitioning implementation
+JSON versus normalized child tables
+Index definitions
+Foreign key DDL
+Partial unique indexes
+Alembic revisions
+SQLite/PostgreSQL compatibility implementation
+Retention jobs
 ```
