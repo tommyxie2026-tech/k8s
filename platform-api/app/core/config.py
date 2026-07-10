@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     project_root: str = ".."
     ansible_playbook_bin: str = "ansible-playbook"
     task_log_dir: str = "/tmp/k8s-platform-api/tasks"
+    database_url: str = "sqlite:////tmp/k8s-platform-api/platform.db"
     dry_run_default: bool = True
 
 
