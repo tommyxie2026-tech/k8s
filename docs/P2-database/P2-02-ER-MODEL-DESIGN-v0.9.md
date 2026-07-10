@@ -13,9 +13,9 @@
 
 This document defines the logical ER model for CPP V2.0.
 
-It translates the frozen resource model into entity relationships.
+It translates the frozen resource model into entity relationships, cardinality, ownership, lifecycle references and deletion rules.
 
-It does not define final SQL DDL. Physical tables, indexes, constraints and migrations are defined in later P2 documents.
+It does not define final SQL DDL. Physical tables, indexes, constraints and migrations are defined in P2-03 and P2-04.
 
 ---
 
@@ -38,351 +38,555 @@ AuditEvent
 ResourceEvent
 ```
 
-These entities are derived from the frozen P1 resource model and P2 data architecture.
-
----
-
-## 3. Logical ER Overview
+All resource entities inherit the common Resource contract:
 
 ```text
-User
-  │
-  ├── creates ───────────────┐
-  │                          ▼
-  │                       Workflow
-  │                          │
-  │                          └── owns 1..N Task
-  │
-  └── emits 1..N AuditEvent
-
-Cluster
-  │
-  ├── owns 1..N Node
-  ├── owns 1..N StoragePool
-  ├── owns 1..N StorageClass
-  ├── owns 1..N VM
-  ├── owns 1..N Backup
-  ├── owns 1..N Workflow
-  └── emits 1..N ResourceEvent
-
-StoragePool
-  └── owns 1..N StorageClass
-
-StorageClass
-  └── referenced by VM disks
-
-VM
-  ├── owns 0..N Backup
-  ├── targeted by 0..N Workflow
-  └── emits 0..N ResourceEvent
-
-Backup
-  ├── targets 1 resource
-  └── created by 0..1 Workflow
-
-Plugin
-  └── provides capabilities for StoragePool / Backup / Identity / Observability
+metadata
+spec
+status
+generation
+resource_version
+created_at
+updated_at
+deleted_at
 ```
 
 ---
 
-## 4. Entity Cardinality Matrix
+## 3. High-Level ER Diagram
 
-| Source | Relationship | Target | Cardinality |
-|---|---|---|---|
-| Cluster | owns | Node | 1:N |
-| Cluster | owns | StoragePool | 1:N |
-| Cluster | owns | StorageClass | 1:N |
-| Cluster | owns | VM | 1:N |
-| Cluster | owns | Backup | 1:N |
-| Cluster | owns | Workflow | 1:N |
-| StoragePool | provides | StorageClass | 1:N |
-| StorageClass | backs | VM disk | 1:N logical |
-| VM | has | Backup | 1:N |
-| Workflow | owns | Task | 1:N |
-| User | creates | Workflow | 1:N |
-| User | triggers | AuditEvent | 1:N |
-| Resource | emits | ResourceEvent | 1:N |
-| Workflow | emits | AuditEvent | 1:N |
-| Task | emits | AuditEvent | 1:N |
-| Plugin | provides | capability | 1:N embedded/list |
+```mermaid
+erDiagram
+    USER ||--o{ WORKFLOW : creates
+    USER ||--o{ AUDIT_EVENT : acts
+
+    CLUSTER ||--o{ NODE : contains
+    CLUSTER ||--o{ STORAGE_POOL : owns
+    CLUSTER ||--o{ STORAGE_CLASS : exposes
+    CLUSTER ||--o{ VM : hosts
+    CLUSTER ||--o{ BACKUP : scopes
+    CLUSTER ||--o{ WORKFLOW : executes
+
+    STORAGE_POOL ||--o{ STORAGE_CLASS : provides
+
+    VM ||--o{ BACKUP : protected_by
+    VM ||--o{ WORKFLOW : targeted_by
+
+    WORKFLOW ||--o{ TASK : contains
+    WORKFLOW ||--o{ BACKUP : produces
+
+    PLUGIN ||--o{ STORAGE_POOL : implements
+    PLUGIN ||--o{ RESOURCE_EVENT : emits
+
+    CLUSTER ||--o{ RESOURCE_EVENT : emits
+    NODE ||--o{ RESOURCE_EVENT : emits
+    STORAGE_POOL ||--o{ RESOURCE_EVENT : emits
+    STORAGE_CLASS ||--o{ RESOURCE_EVENT : emits
+    VM ||--o{ RESOURCE_EVENT : emits
+    BACKUP ||--o{ RESOURCE_EVENT : emits
+    WORKFLOW ||--o{ RESOURCE_EVENT : emits
+    TASK ||--o{ RESOURCE_EVENT : emits
+```
 
 ---
 
-## 5. Cluster-Centric Model
+## 4. Cluster Relationships
 
 Cluster is the top-level infrastructure aggregate.
 
 ```text
-Cluster
- ├── Node
- ├── StoragePool
- ├── StorageClass
- ├── VM
- ├── Backup
- └── Workflow
+Cluster 1 -> N Node
+Cluster 1 -> N StoragePool
+Cluster 1 -> N StorageClass
+Cluster 1 -> N VM
+Cluster 1 -> N Backup
+Cluster 1 -> N Workflow
+Cluster 1 -> N ResourceEvent
 ```
 
 Rules:
 
 ```text
-1. Node, StoragePool, StorageClass, VM and Backup must belong to one Cluster.
-2. Workflow may belong to one Cluster or be global.
-3. Plugin and User are global resources.
-4. AuditEvent and ResourceEvent may reference Cluster but are not owned by Cluster lifecycle.
+1. Node must belong to exactly one Cluster.
+2. StoragePool must belong to exactly one Cluster.
+3. StorageClass must belong to exactly one Cluster.
+4. VM must belong to exactly one Cluster.
+5. Backup must belong to exactly one Cluster.
+6. Workflow may belong to one Cluster or be platform-scoped.
+7. Cluster deletion is blocked while active dependent resources exist.
 ```
 
 ---
 
-## 6. Storage Model
+## 5. Node Relationships
 
-Storage has two independent entities:
+Node represents compute capacity inside a Cluster.
 
 ```text
-StoragePool
-StorageClass
+Node N -> 1 Cluster
+Node N <-> N StoragePool optional
+Node 1 -> N VM runtime placements optional
 ```
 
-StorageClass is not merely an attribute of StoragePool.
+The Node-to-StoragePool relationship is many-to-many because local and distributed storage can span multiple nodes.
 
-Relationship:
+Logical join entity:
 
 ```text
+NodeStoragePool
+```
+
+Fields:
+
+```text
+node_id
+storage_pool_id
+role
+status
+created_at
+```
+
+VM placement is observed state, not a permanent ownership relationship. VM may reference current node through status, but node deletion must not cascade-delete VM.
+
+---
+
+## 6. StoragePool Relationships
+
+StoragePool represents a logical backend.
+
+```text
+StoragePool N -> 1 Cluster
 StoragePool 1 -> N StorageClass
+StoragePool N <-> N Node optional
+StoragePool N -> 1 Plugin optional
+```
+
+Rules:
+
+```text
+1. StorageClass must reference one StoragePool.
+2. StoragePool may be plugin-backed.
+3. StoragePool deletion is blocked while active StorageClass resources reference it.
+4. StoragePool soft deletion preserves historical Backup and Audit references.
+```
+
+---
+
+## 7. StorageClass Relationships
+
+StorageClass is an independent aggregate root.
+
+```text
 StorageClass N -> 1 Cluster
 StorageClass N -> 1 StoragePool
+StorageClass 1 -> N VM disk references indirectly
 ```
 
-Reason:
+Direct VM-to-StorageClass foreign keys are not mandatory because VM disks may be represented inside spec JSON and external PVC/DataVolume resources.
+
+For queryability, an optional normalized relation is allowed:
 
 ```text
-1. StorageClass is independently manageable in Kubernetes.
-2. Default class, reclaim policy and binding mode require independent governance.
-3. VM disks and backups may reference StorageClass directly.
+VMStorageClass
+```
+
+Fields:
+
+```text
+vm_id
+storage_class_id
+disk_name
+pvc_name
+created_at
 ```
 
 ---
 
-## 7. VM Model
+## 8. VM Relationships
 
-VM belongs to exactly one Cluster and may reference multiple storage and network descriptors in spec.
+VM represents a KubeVirt VM.
 
 ```text
-Cluster 1 -> N VM
-VM 1 -> N logical disks
-VM disk N -> 1 StorageClass logical reference
+VM N -> 1 Cluster
 VM 1 -> N Backup
-VM 1 -> N Workflow target references
+VM 1 -> N Workflow
+VM N -> 0..1 Node current placement
+VM N <-> N StorageClass optional normalized mapping
 ```
 
-In V2.0, VM disks and networks may be embedded inside VM.spec rather than normalized as first-class tables.
+Rules:
 
-A future P1.x Network Domain may promote networks into first-class resources.
+```text
+1. VM deletion must not automatically delete Backup records.
+2. VM current node placement is observed status.
+3. VM start/stop/migrate/backup/restore are represented by Workflow.
+4. VM namespace and name must be unique within one Cluster.
+```
 
 ---
 
-## 8. Backup Model
+## 9. Backup Relationships
 
-Backup is a unified entity.
-
-Supported backup scopes:
-
-```text
-cluster
-namespace
-vm
-pvc
-etcd
-```
-
-Relationship:
+Backup is a unified resource.
 
 ```text
 Backup N -> 1 Cluster
+Backup N -> 0..1 VM
 Backup N -> 0..1 Workflow
-Backup N -> 1 target reference
+Backup N -> 0..1 User creator through Workflow or direct action
 ```
 
-The target is represented by:
+Backup target is polymorphic.
+
+Required logical fields:
 
 ```text
 target_kind
 target_id
-target_ref
+target_namespace optional
+target_name optional
 ```
 
-This allows Backup to target Cluster, VM, namespace, PVC or etcd snapshot without creating separate backup tables for each type.
-
----
-
-## 9. Workflow and Task Model
-
-Workflow is an orchestration entity.
-
-Task is an execution entity.
-
-Relationship:
+Allowed target kinds:
 
 ```text
-Workflow 1 -> N Task
-Task N -> 0..1 Workflow
+Cluster
+Namespace
+VM
+PVC
+Etcd
 ```
-
-Task is allowed to exist without Workflow to support legacy direct playbook execution.
 
 Rules:
 
 ```text
-1. New multi-step operations should use Workflow.
-2. Legacy single-playbook actions may create Task directly.
-3. Task must always record executor_type, command_ref, status and log reference.
+1. Backup may outlive its target resource.
+2. Target deletion must not cascade-delete Backup.
+3. Backup deletion only removes catalog metadata by default; physical artifact purge is a separate Workflow.
 ```
 
 ---
 
-## 10. Event and Audit Model
+## 10. Workflow Relationships
 
-CPP uses two event-like entities:
+Workflow is an orchestration aggregate root.
 
 ```text
-ResourceEvent
-AuditEvent
+Workflow N -> 0..1 Cluster
+Workflow N -> 1 User creator
+Workflow 1 -> N Task
+Workflow N -> 0..1 target resource
+Workflow 1 -> N ResourceEvent
+Workflow 1 -> N AuditEvent
 ```
 
-ResourceEvent records resource lifecycle and state transitions.
-
-AuditEvent records actor-driven security and operation history.
-
-Relationship:
+Workflow target is polymorphic:
 
 ```text
-Resource 1 -> N ResourceEvent
-User 1 -> N AuditEvent
-Workflow 1 -> N AuditEvent
+target_kind
+target_id
+```
+
+Rules:
+
+```text
+1. Workflow owns Task lifecycle.
+2. Task may also exist without Workflow for legacy direct actions.
+3. Workflow records must not be cascade-deleted when target resources are deleted.
+4. Workflow history is retained according to retention policy.
+```
+
+---
+
+## 11. Task Relationships
+
+Task represents one executable unit.
+
+```text
+Task N -> 0..1 Workflow
+Task N -> 0..1 User requester
+Task 1 -> N ResourceEvent
 Task 1 -> N AuditEvent
 ```
 
 Rules:
 
 ```text
-1. ResourceEvent may be consumed by WebSocket, monitoring and UI.
-2. AuditEvent is append-only and compliance-oriented.
-3. A single operation may produce both ResourceEvent and AuditEvent.
+1. workflow_id may be null for legacy direct execution.
+2. Task deletion must not remove execution logs before retention expiry.
+3. Task status and return code are immutable after terminal state, except administrative correction events.
+```
+
+Terminal states:
+
+```text
+succeeded
+failed
+cancelled
 ```
 
 ---
 
-## 11. Plugin Model
+## 12. Plugin Relationships
 
-Plugin is global.
-
-Plugin may provide capabilities for:
+Plugin represents an installed capability extension.
 
 ```text
-StoragePool
-Backup
-Identity
-Observability
-VM
-Network future extension
+Plugin 1 -> N StoragePool optional
+Plugin 1 -> N ResourceEvent
+Plugin 1 -> N AuditEvent
 ```
 
-In V2.0, Plugin capability declarations may be stored as structured JSON/list fields.
+Plugin capability relations are logical rather than hard-coded by dedicated tables in V2.0.
 
-Relationship is logical rather than strict foreign key:
+Recommended fields:
 
 ```text
-Plugin.capabilities -> services/features
-StoragePool.spec.plugin -> Plugin.name or Plugin.id
+category
+provider
+version
+capabilities
 ```
+
+Plugin deletion is blocked while active resources depend on it.
 
 ---
 
-## 12. User Model
+## 13. User Relationships
 
-User is a global identity entity.
-
-Relationships:
+User represents an authenticated actor.
 
 ```text
-User 1 -> N Workflow created_by
-User 1 -> N AuditEvent actor_id
+User 1 -> N Workflow
+User 1 -> N Task optional
+User 1 -> N AuditEvent
+User 1 -> N ResourceEvent optional actor
 ```
 
-Detailed RBAC relations are deferred to a future Identity/RBAC design.
+User deletion should normally become disablement or soft deletion. Historical Workflow and Audit references must remain valid.
 
 ---
 
-## 13. Global Reference Pattern
+## 14. AuditEvent Entity
 
-Some entities need generic references to arbitrary resources.
+AuditEvent is append-only.
 
-The standard reference pattern is:
+Logical fields:
 
-```text
-target_kind
-target_id
-target_ref
-```
-
-Usage:
-
-```text
-Workflow target
-Backup target
-AuditEvent target
-ResourceEvent subject
+```yaml
+AuditEvent:
+  id: UUIDv7
+  actor_user_id: UUIDv7|null
+  actor_type: user | service | system | plugin
+  action: string
+  target_kind: string|null
+  target_id: UUIDv7|null
+  workflow_id: UUIDv7|null
+  task_id: UUIDv7|null
+  result: success | denied | failed
+  request_id: string|null
+  source_ip: string|null
+  details: object
+  created_at: datetime
 ```
 
 Rules:
 
 ```text
-1. target_kind must match a known resource kind or extension kind.
-2. target_id should be used for CPP-managed resources.
-3. target_ref may be used for external resources such as Kubernetes namespace, PVC or etcd snapshot path.
+1. Append-only.
+2. No updated_at.
+3. No normal soft deletion.
+4. Foreign references may be nullable to preserve records after target purge.
 ```
 
 ---
 
-## 14. ER Boundary Decisions
+## 15. ResourceEvent Entity
 
-Frozen candidates:
+ResourceEvent records lifecycle and state transitions.
+
+Logical fields:
+
+```yaml
+ResourceEvent:
+  id: UUIDv7
+  event_type: string
+  resource_kind: string
+  resource_id: UUIDv7
+  actor_user_id: UUIDv7|null
+  workflow_id: UUIDv7|null
+  task_id: UUIDv7|null
+  generation: integer|null
+  resource_version: string|null
+  payload: object
+  created_at: datetime
+```
+
+Rules:
 
 ```text
-1. Cluster is the top-level infrastructure aggregate.
-2. StorageClass is an independent entity.
-3. Task may exist without Workflow.
-4. Backup uses target_kind/target_id/target_ref instead of separate backup tables.
-5. ResourceEvent and AuditEvent are separate entities.
-6. VM disks and networks are embedded in VM.spec for V2.0.
-7. Plugin capabilities are modeled as structured declarations, not hard foreign-key tables in V2.0.
+1. Append-only.
+2. Event order is defined by created_at plus id.
+3. ResourceEvent is not a substitute for current Resource status.
+4. Event replay may support future diagnostics but is not required as full event sourcing in V2.0.
 ```
 
 ---
 
-## 15. Deferred To P2-03
+## 16. Polymorphic References
 
-The following are intentionally deferred:
+CPP uses polymorphic references for Workflow targets, Backup targets, Audit targets and ResourceEvent targets.
+
+Pattern:
 
 ```text
-Physical table schema
-Indexes
-Foreign keys
-JSON column strategy
-Enum storage strategy
-Alembic migration layout
-SQLite/PostgreSQL compatibility details
+target_kind
+target_id
+```
+
+Decision rationale:
+
+```text
+1. Avoid one nullable foreign key per resource type.
+2. Support future resource kinds without schema explosion.
+3. Keep Workflow, Backup and Audit generic.
+```
+
+Constraint:
+
+Application-layer Repository and Service validation must verify that target_kind and target_id resolve to a valid resource when required.
+
+---
+
+## 17. Deletion and Referential Integrity
+
+Default policy:
+
+```text
+Soft delete resources
+Restrict destructive parent deletion
+Preserve historical Workflow, Task, Backup, Event and Audit references
+```
+
+Recommended referential actions:
+
+```text
+Cluster -> Node: RESTRICT while active
+Cluster -> StoragePool: RESTRICT while active
+StoragePool -> StorageClass: RESTRICT while active
+Workflow -> Task: preserve and soft-delete together only by retention job
+User -> AuditEvent: SET NULL on hard purge
+Target Resource -> Backup: NO CASCADE
+Target Resource -> Workflow: NO CASCADE
+Target Resource -> ResourceEvent: NO CASCADE
 ```
 
 ---
 
-## 16. Review Items
+## 18. Uniqueness Rules
+
+Logical uniqueness constraints:
+
+```text
+Cluster.name unique among non-deleted clusters
+Node(cluster_id, hostname) unique among non-deleted nodes
+StoragePool(cluster_id, name) unique among non-deleted pools
+StorageClass(cluster_id, name) unique among non-deleted classes
+VM(cluster_id, namespace, name) unique among non-deleted VMs
+Plugin(name, version) unique
+User.username unique among active users
+```
+
+Soft-deleted rows require partial unique indexes in PostgreSQL or equivalent application enforcement in SQLite.
+
+---
+
+## 19. Aggregate Boundaries
+
+Frozen candidates for aggregate roots:
+
+```text
+Cluster
+Node
+StoragePool
+StorageClass
+VM
+Backup
+Workflow
+Task
+Plugin
+User
+```
+
+Supporting entities:
+
+```text
+NodeStoragePool
+VMStorageClass
+AuditEvent
+ResourceEvent
+```
+
+Rules:
+
+```text
+1. Aggregate roots have repositories.
+2. Join entities are managed through owning service methods.
+3. AuditEvent and ResourceEvent use append-only repositories.
+```
+
+---
+
+## 20. Consistency Model
+
+Strong local consistency:
+
+```text
+Resource metadata/spec/status update
+Workflow creation plus initial Task set
+Task terminal status plus corresponding Event
+```
+
+Eventual consistency:
+
+```text
+External Kubernetes observed state
+VM placement status
+Storage capacity status
+Monitoring projection
+WebSocket projection
+```
+
+Cross-resource infrastructure operations use Saga workflows.
+
+---
+
+## 21. Review Decisions Required
 
 Before freezing P2-02, confirm:
 
-1. Is Cluster accepted as the top-level infrastructure aggregate?
-2. Is StorageClass accepted as an independent entity?
-3. Is Task allowed to exist without Workflow?
-4. Is generic target_kind/target_id/target_ref accepted for Backup, Workflow and Events?
-5. Should ResourceEvent and AuditEvent remain separate entities?
-6. Is embedding VM disks/networks in VM.spec acceptable for V2.0?
+```text
+1. Cluster is the top-level infrastructure aggregate.
+2. StorageClass remains an independent aggregate root.
+3. Workflow and Backup use polymorphic target_kind/target_id.
+4. Task may exist without Workflow for legacy operations.
+5. Backup, Workflow, Task, AuditEvent and ResourceEvent survive target deletion.
+6. NodeStoragePool and VMStorageClass are optional normalized join entities.
+7. ResourceEvent is append-only history, not full event sourcing in V2.0.
+8. Parent deletion uses RESTRICT rather than cascade for active resources.
+```
+
+---
+
+## 22. Deferred To P2-03/P2-04
+
+```text
+SQL column types
+JSON versus normalized field choices
+Concrete foreign keys
+Indexes and partial indexes
+SQLite compatibility rules
+PostgreSQL-specific optimization
+Alembic migration files
+Retention and partitioning implementation
+```
