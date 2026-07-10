@@ -6,7 +6,7 @@
 > - FROZEN-P1-01-DOMAIN-MODEL-v1.0
 > - FROZEN-P2-01-DATA-ARCHITECTURE-v1.0
 > Scope: CPP logical entity relationship model
-> Rule: Any incompatible change to entity identity, aggregate ownership, cardinality, or event separation must create a new design version and pass review again.
+> Rule: Any incompatible change to entity identity, aggregate ownership, cardinality, deletion behavior, or event separation must create a new design version and pass review again.
 
 ---
 
@@ -14,15 +14,11 @@
 
 This frozen specification defines the logical ER model for CPP V2.0.
 
-It translates the frozen resource model into entity relationships.
-
-This document does not define final SQL DDL. Physical tables, indexes, constraints and migrations are defined in later P2 documents.
+It translates the frozen resource model into entity relationships, ownership, lifecycle references and deletion rules. Final SQL DDL, indexes and migrations are defined in P2-03 and P2-04.
 
 ---
 
-## 2. Frozen Core Entities
-
-CPP V2.0 freezes the following primary entities:
+## 2. Frozen Entities
 
 ```text
 Cluster
@@ -39,41 +35,58 @@ AuditEvent
 ResourceEvent
 ```
 
-The first ten entities are frozen resources from P1. AuditEvent and ResourceEvent are supporting entities required by P2-01.
-
----
-
-## 3. High-Level ER Diagram
+All resource entities inherit:
 
 ```text
-Cluster
-  ├── Node
-  ├── StoragePool
-  │     └── StorageClass
-  ├── VM
-  │     └── Backup
-  ├── Workflow
-  │     └── Task
-  ├── ResourceEvent
-  └── AuditEvent
-
-User
-  ├── Workflow(created_by)
-  ├── AuditEvent(actor)
-  └── ResourceEvent(actor optional)
-
-Plugin
-  ├── StoragePool(plugin)
-  └── future extension resources
+metadata
+spec
+status
+generation
+resource_version
+created_at
+updated_at
+deleted_at
 ```
 
 ---
 
-## 4. Cluster Relationships
+## 3. Frozen ER Diagram
 
-Cluster is the top-level aggregate boundary for managed infrastructure.
+```mermaid
+erDiagram
+    USER ||--o{ WORKFLOW : creates
+    USER ||--o{ AUDIT_EVENT : acts
 
-Relationships:
+    CLUSTER ||--o{ NODE : contains
+    CLUSTER ||--o{ STORAGE_POOL : owns
+    CLUSTER ||--o{ STORAGE_CLASS : exposes
+    CLUSTER ||--o{ VM : hosts
+    CLUSTER ||--o{ BACKUP : scopes
+    CLUSTER ||--o{ WORKFLOW : executes
+
+    STORAGE_POOL ||--o{ STORAGE_CLASS : provides
+    PLUGIN ||--o{ STORAGE_POOL : implements
+
+    VM ||--o{ BACKUP : protected_by
+    VM ||--o{ WORKFLOW : targeted_by
+
+    WORKFLOW ||--o{ TASK : contains
+    WORKFLOW ||--o{ BACKUP : produces
+
+    CLUSTER ||--o{ RESOURCE_EVENT : emits
+    NODE ||--o{ RESOURCE_EVENT : emits
+    STORAGE_POOL ||--o{ RESOURCE_EVENT : emits
+    STORAGE_CLASS ||--o{ RESOURCE_EVENT : emits
+    VM ||--o{ RESOURCE_EVENT : emits
+    BACKUP ||--o{ RESOURCE_EVENT : emits
+    WORKFLOW ||--o{ RESOURCE_EVENT : emits
+    TASK ||--o{ RESOURCE_EVENT : emits
+    PLUGIN ||--o{ RESOURCE_EVENT : emits
+```
+
+---
+
+## 4. Cluster Aggregate
 
 ```text
 Cluster 1 -> N Node
@@ -83,257 +96,317 @@ Cluster 1 -> N VM
 Cluster 1 -> N Backup
 Cluster 1 -> N Workflow
 Cluster 1 -> N ResourceEvent
-Cluster 1 -> N AuditEvent optional
 ```
 
 Rules:
 
 ```text
-1. Node, StoragePool, StorageClass, VM and Backup must belong to a Cluster.
-2. Workflow may be cluster-scoped or platform-scoped.
-3. User and Plugin are platform-scoped resources.
+Node, StoragePool, StorageClass, VM and Backup belong to exactly one Cluster.
+Workflow may be cluster-scoped or platform-scoped.
+Cluster deletion is blocked while active dependent resources exist.
+Cluster deletion requires an explicit preflight and destructive Workflow.
 ```
 
 ---
 
-## 5. Storage Relationships
+## 5. Node Aggregate
 
 ```text
+Node N -> 1 Cluster
+Node 1 -> N VM observed placements
+Node 1 -> N ResourceEvent
+```
+
+Rules:
+
+```text
+Node is cluster-scoped.
+VM placement is status data, not ownership.
+Node deletion is blocked while running VMs are observed on the node.
+Historical events survive Node soft deletion.
+```
+
+---
+
+## 6. Storage Aggregates
+
+```text
+StoragePool N -> 1 Cluster
 StoragePool 1 -> N StorageClass
-StorageClass N -> 1 StoragePool
+StoragePool N -> 0..1 Plugin
 StorageClass N -> 1 Cluster
+StorageClass N -> 1 StoragePool
 ```
 
 Rules:
 
 ```text
-1. StorageClass is an independent resource.
-2. StorageClass must reference one StoragePool when managed by CPP.
-3. Externally discovered StorageClass may have storage_pool_id=null until classified.
+StorageClass is an independent aggregate root.
+StorageClass must reference exactly one StoragePool.
+StoragePool deletion is blocked while active StorageClasses reference it.
+Plugin reference is optional for built-in providers.
+StorageClass deletion is blocked when active VM disk references exist unless an approved destructive Workflow is used.
 ```
 
 ---
 
-## 6. VM Relationships
+## 7. VM Aggregate
 
 ```text
 VM N -> 1 Cluster
-VM N -> N StorageClass logically through disks/PVC/DataVolume references
 VM 1 -> N Backup
-VM 1 -> N Workflow as target
+VM 1 -> N Workflow
+VM 1 -> N ResourceEvent
+VM N -> 0..1 Node observed placement
+VM N -> N StorageClass logical disk usage
 ```
 
 Rules:
 
 ```text
-1. VM belongs to one Cluster.
-2. VM identity includes cluster_id, namespace and name.
-3. VM disk references are stored in spec and may reference StorageClass by name or id.
-4. Backup may target a VM.
+cluster_id + namespace + name is unique among non-deleted VMs.
+Node placement belongs to VM.status.
+VM-to-StorageClass relation may be represented through disk metadata in V2.0.
+VM deletion does not delete Backup, Workflow, Task or Event history.
+VM destructive operations must be Workflow operations.
 ```
 
 ---
 
-## 7. Backup Relationships
+## 8. Backup Aggregate
 
 ```text
 Backup N -> 1 Cluster
-Backup N -> 0..1 VM
-Backup N -> 0..1 Workflow
-Backup N -> 0..1 User created_by through Workflow or Audit
-```
-
-Backup target model:
-
-```text
-target_kind: cluster | namespace | vm | pvc | etcd
-target_id: resource id or external reference
+Backup N -> 0..1 target resource
+Backup N -> 0..1 producer Workflow
+Backup 1 -> N ResourceEvent
 ```
 
 Rules:
 
 ```text
-1. Backup is standalone and queryable.
-2. Backup may be created by Workflow.
-3. Backup may represent etcd snapshot, Velero backup, VM backup, PVC snapshot or cluster backup.
+Backup supports cluster, namespace, VM, PVC and etcd scopes.
+target_kind + target_id identify the protected resource.
+Backup survives target deletion.
+Producer Workflow may be null for externally discovered backups.
+Hard deletion is controlled by retention or an explicit purge Workflow.
 ```
 
 ---
 
-## 8. Workflow and Task Relationships
+## 9. Workflow and Task Aggregates
 
 ```text
+Workflow N -> 0..1 Cluster
+Workflow N -> 1 User creator
 Workflow 1 -> N Task
-Task N -> 0..1 Workflow
 Workflow N -> 0..1 target resource
-Task N -> 0..1 target resource optional
+Task N -> 0..1 Workflow
 ```
 
 Rules:
 
 ```text
-1. Workflow is an aggregate root.
-2. Task is also an independent resource for legacy direct actions.
-3. A Task may exist without a Workflow.
-4. Workflow target is represented by target_kind + target_id.
+Workflow may be platform-scoped.
+Workflow target uses target_kind + target_id.
+Task may exist without Workflow for legacy direct execution.
+Workflow deletion does not cascade-delete Tasks or history.
+Task ordering uses sequence_number.
+Workflow and Task records are retained for audit and diagnosis.
 ```
 
 ---
 
-## 9. Plugin Relationships
+## 10. Plugin Aggregate
 
 ```text
-Plugin 1 -> N resource capabilities
-Plugin 0..N -> StoragePool by plugin name or plugin_id
+Plugin 1 -> N StoragePool
+Plugin 1 -> N ResourceEvent
 ```
 
 Rules:
 
 ```text
-1. Plugin is platform-scoped.
-2. Plugin must declare capabilities.
-3. Plugin must not directly own core resources.
-4. Plugin can enable or reconcile resources through public APIs and workflows.
+Plugin may provide multiple capabilities.
+Plugin disablement is blocked while active resources depend on it unless explicitly forced.
+Plugin deletion does not delete resources created by it.
+References use stable plugin id and version metadata.
 ```
 
 ---
 
-## 10. User Relationships
+## 11. User Aggregate
 
 ```text
-User 1 -> N Workflow created_by
-User 1 -> N AuditEvent actor
-User 1 -> N ResourceEvent actor optional
+User 1 -> N Workflow
+User 1 -> N AuditEvent
 ```
 
 Rules:
 
 ```text
-1. User is platform-scoped.
-2. RBAC relationships are deferred to Identity/RBAC spec.
-3. User deletion must preserve audit history.
+User removal uses disablement or soft deletion.
+Historical Workflow and AuditEvent records keep actor identity snapshots.
+User references must preserve history.
 ```
 
 ---
 
-## 11. Event Relationships
+## 12. AuditEvent
 
-### 11.1 ResourceEvent
+AuditEvent is append-only and not a normal mutable Resource.
 
-ResourceEvent records resource lifecycle and status transitions.
-
-```text
-ResourceEvent N -> 1 Resource logical reference
-ResourceEvent N -> 0..1 User actor
-ResourceEvent N -> 0..1 Workflow
-ResourceEvent N -> 0..1 Task
-```
-
-### 11.2 AuditEvent
-
-AuditEvent records security and operation history.
-
-```text
-AuditEvent N -> 0..1 User actor
-AuditEvent N -> 0..1 target resource
-AuditEvent N -> 0..1 Workflow
-AuditEvent N -> 0..1 Task
+```yaml
+AuditEvent:
+  id: UUIDv7
+  actor_id: string|null
+  actor_name: string
+  action: string
+  target_kind: string|null
+  target_id: string|null
+  workflow_id: string|null
+  result: success | failure | denied
+  request_id: string|null
+  details: object
+  created_at: datetime
 ```
 
 Rules:
 
 ```text
-1. AuditEvent is append-only.
-2. ResourceEvent may be used for WebSocket and UI event streams.
-3. AuditEvent and ResourceEvent are not substitutes for resource status.
+AuditEvent cannot be updated in place.
+AuditEvent is retained independently of resource deletion.
+actor_name is snapshotted.
+target references may point to soft-deleted resources.
 ```
 
 ---
 
-## 12. Logical Cardinality Summary
+## 13. ResourceEvent
 
-| Source | Target | Cardinality |
-|---|---|---|
-| Cluster | Node | 1:N |
-| Cluster | StoragePool | 1:N |
-| StoragePool | StorageClass | 1:N |
-| Cluster | VM | 1:N |
-| VM | Backup | 1:N |
-| Cluster | Backup | 1:N |
-| Workflow | Task | 1:N |
-| User | Workflow | 1:N |
-| User | AuditEvent | 1:N |
-| Resource | ResourceEvent | 1:N |
-| Plugin | StoragePool | 1:N optional |
-
----
-
-## 13. Identity and Uniqueness
-
-Recommended unique constraints:
-
-```text
-Cluster: name
-Node: cluster_id + hostname
-StoragePool: cluster_id + name
-StorageClass: cluster_id + name
-VM: cluster_id + namespace + name
-Backup: id
-Workflow: id
-Task: id
-Plugin: name + version
-User: username + source
+```yaml
+ResourceEvent:
+  id: UUIDv7
+  resource_kind: string
+  resource_id: string
+  event_type: string
+  source: string
+  reason: string|null
+  message: string|null
+  generation: integer|null
+  resource_version: string|null
+  payload: object|null
+  created_at: datetime
 ```
-
-All public resource identifiers use UUIDv7-compatible ids.
-
----
-
-## 14. Soft Delete Behavior
-
-Soft deletion applies to core resources.
 
 Rules:
 
 ```text
-1. deleted_at marks resource deletion.
-2. Unique constraints must consider deleted_at where supported.
-3. AuditEvent is never soft-deleted by normal resource deletion.
-4. ResourceEvent retention is defined separately.
+ResourceEvent is append-only.
+ResourceEvent may refer to soft-deleted resources.
+It feeds lifecycle history, WebSocket and monitoring integrations.
+High-frequency samples belong in metrics, not ResourceEvent.
 ```
 
 ---
 
-## 15. Frozen Review Decisions
+## 14. Polymorphic References
 
-The following review decisions are frozen:
+Frozen polymorphic references:
 
 ```text
-1. Cluster remains the top-level infrastructure aggregate.
-2. User and Plugin are platform-scoped, not cluster-scoped.
-3. StorageClass remains independent and references StoragePool.
-4. Task remains standalone and optionally attached to Workflow.
-5. AuditEvent and ResourceEvent are separate entities.
+Workflow.target_kind + Workflow.target_id
+Backup.target_kind + Backup.target_id
+AuditEvent.target_kind + AuditEvent.target_id
+ResourceEvent.resource_kind + ResourceEvent.resource_id
+```
+
+Rules:
+
+```text
+Repository and service layers validate target existence and allowed kinds.
+References remain valid for soft-deleted targets.
+Public APIs expose both kind and id.
+Database foreign keys alone are not sufficient for these references.
 ```
 
 ---
 
-## 16. Deferred To Later Specs
-
-The following are intentionally deferred:
+## 15. Deletion and Cascade Policy
 
 ```text
-Physical table definitions
-Indexes
-Foreign key enforcement details
-Polymorphic target implementation
-ResourceEvent retention policy
-RBAC join tables
-Multi-cluster federation tables
+Resources -> soft delete
+Workflow/Task -> retained
+AuditEvent/ResourceEvent -> append-only retained
 ```
 
-Next document:
+No automatic destructive cascade is allowed across aggregate roots.
 
 ```text
-P2-03 Table Schema and Index Design
+Cluster deletion requires preflight Workflow.
+StoragePool deletion is restricted by StorageClass references.
+VM deletion does not delete backups or history.
+User disablement does not remove historical actor references.
+```
+
+---
+
+## 16. Frozen Uniqueness Rules
+
+```text
+Cluster.name unique among non-deleted records
+Node(cluster_id, hostname) unique among non-deleted records
+StoragePool(cluster_id, name) unique among non-deleted records
+StorageClass(cluster_id, name) unique among non-deleted records
+VM(cluster_id, namespace, name) unique among non-deleted records
+Plugin(name, version) unique among non-deleted records
+User.username unique among non-deleted records
+```
+
+Workflow, Task, Backup, AuditEvent and ResourceEvent use globally unique IDs.
+
+---
+
+## 17. Ownership Matrix
+
+| Entity | Aggregate Root | Parent Scope | Deletion Behavior |
+|---|---|---|---|
+| Cluster | Yes | Platform | Restricted Workflow |
+| Node | Yes | Cluster | Restricted/soft delete |
+| StoragePool | Yes | Cluster | Restricted/soft delete |
+| StorageClass | Yes | Cluster | Restricted/soft delete |
+| VM | Yes | Cluster | Workflow/soft delete |
+| Backup | Yes | Cluster | Retention/purge Workflow |
+| Workflow | Yes | Platform or Cluster | Retained |
+| Task | Yes | Optional Workflow | Retained |
+| Plugin | Yes | Platform | Restricted/soft delete |
+| User | Yes | Platform | Disable/soft delete |
+| AuditEvent | Append-only | Platform | Retained |
+| ResourceEvent | Append-only | Resource | Retained |
+
+---
+
+## 18. Frozen Decisions
+
+```text
+1. Core entity set is frozen.
+2. StorageClass is an independent aggregate root.
+3. Task may exist without Workflow.
+4. Workflow, Backup and events use kind + id polymorphic references.
+5. No automatic destructive cascade across aggregate roots.
+6. AuditEvent and ResourceEvent are append-only retained entities.
+7. Backup survives target deletion.
+8. Cluster deletion requires explicit preflight Workflow.
+```
+
+---
+
+## 19. Deferred
+
+```text
+SQL types and DDL -> P2-03
+Indexes and constraints -> P2-03
+Alembic migration strategy -> P2-04
+Retention implementation -> P2-04/P8
+Repository implementation -> implementation phase
 ```
