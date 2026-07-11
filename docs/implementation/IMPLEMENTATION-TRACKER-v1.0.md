@@ -36,12 +36,12 @@
 
 ### M0 / E0.1 Quality Gates
 
-- [ ] T0.1 Add pytest baseline and test directory structure
-- [ ] T0.2 Add Python lint configuration
-- [ ] T0.3 Add type-check baseline
-- [ ] T0.4 Add CI workflow for lint, tests and import validation
-- [ ] T0.5 Add application startup smoke test
-- [ ] T0.6 Add architecture dependency test preventing Router -> Executor imports
+- [x] T0.1 Add pytest baseline and test directory structure
+- [x] T0.2 Add Python lint configuration
+- [x] T0.3 Add type-check baseline
+- [x] T0.4 Add CI workflow for lint, tests and import validation
+- [x] T0.5 Add application startup smoke test
+- [x] T0.6 Add architecture dependency test preventing Router -> Executor imports
 
 ### M0 / E0.2 Compatibility Inventory
 
@@ -52,7 +52,7 @@
 
 ### M1 / E1.1 Database Bootstrap
 
-- [ ] T1.1 Add SQLAlchemy 2.x and Alembic dependencies
+- [x] T1.1 Add SQLAlchemy 2.x and Alembic dependencies
 - [ ] T1.2 Add database settings and session factory
 - [ ] T1.3 Add initial Alembic environment
 - [ ] T1.4 Create SQLite development database path
@@ -77,13 +77,13 @@
 
 ## Sprint 1 Exit Criteria
 
-- [ ] Platform API imports and starts successfully
-- [ ] CI executes lint, tests and architecture dependency checks
+- [x] Platform API imports and starts successfully
+- [x] CI executes lint, tests and architecture dependency checks
 - [ ] Workflow and Task records survive process restart
 - [ ] Database schema initializes through Alembic
 - [ ] Repository tests pass on SQLite
-- [ ] No existing playbook capability is removed
-- [ ] No new Router -> Executor dependency is introduced
+- [x] No existing playbook capability is removed
+- [x] No new Router -> Executor dependency is introduced
 
 ---
 
