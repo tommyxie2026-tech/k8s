@@ -1,0 +1,44 @@
+name: platform-api
+
+on:
+  pull_request:
+    paths:
+      - "platform-api/**"
+      - ".github/workflows/platform-api.yml"
+  push:
+    branches:
+      - master
+    paths:
+      - "platform-api/**"
+      - ".github/workflows/platform-api.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        working-directory: platform-api
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Lint
+        working-directory: platform-api
+        run: ruff check app tests
+
+      - name: Type check
+        working-directory: platform-api
+        run: mypy app
+
+      - name: Unit tests
+        working-directory: platform-api
+        run: pytest
