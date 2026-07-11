@@ -45,10 +45,16 @@
 
 ### M0 / E0.2 Compatibility Inventory
 
-- [ ] T0.7 Inventory current API routes
-- [ ] T0.8 Inventory executor call sites
-- [ ] T0.9 Inventory TaskInfo and JobRecord consumers
-- [ ] T0.10 Define compatibility and deprecation map
+- [x] T0.7 Inventory current API routes
+- [x] T0.8 Inventory executor call sites
+- [x] T0.9 Inventory TaskInfo and JobRecord consumers
+- [x] T0.10 Define compatibility and deprecation map
+
+Inventory artifact:
+
+```text
+docs/implementation/CURRENT-API-EXECUTION-INVENTORY-v1.0.md
+```
 
 ### M1 / E1.1 Database Bootstrap
 
@@ -118,94 +124,3 @@
 - [ ] T3.6 Implement timeout handling
 - [ ] T3.7 Add retry policy
 - [ ] T3.8 Implement bounded retry/backoff
-- [ ] T3.9 Add compensation model
-- [ ] T3.10 Add resume support
-- [ ] T3.11 Persist retry/compensation events
-- [ ] T3.12 Centralize destructive confirmation
-- [ ] T3.13 Convert hard-coded templates to versioned definitions
-- [ ] T3.14 Align workflow API with frozen P3
-
----
-
-## M4 Resource Plane and API
-
-- [ ] Implement common Resource schemas
-- [ ] Implement generation/resource_version concurrency
-- [ ] Implement soft-delete behaviour
-- [ ] Implement repositories/services for Cluster, Node, StoragePool, StorageClass, VM, Backup, Plugin and User
-- [ ] Migrate routers to service layer
-- [ ] Add pagination/filtering
-- [ ] Add API contract tests
-
----
-
-## M5 Security, Audit and Events
-
-- [ ] Implement request_id middleware
-- [ ] Implement actor context
-- [ ] Implement local development authentication
-- [ ] Define authorization policy interface
-- [ ] Protect destructive operations
-- [ ] Persist append-only AuditEvent
-- [ ] Persist ResourceEvent
-- [ ] Emit events for spec/status changes
-- [ ] Add audit and event query APIs
-- [ ] Add audit immutability tests
-
----
-
-## M6 Plugin SDK
-
-- [ ] Define plugin manifest schema
-- [ ] Implement capability registry
-- [ ] Implement plugin discovery and lifecycle
-- [ ] Implement restricted Resource/Workflow clients
-- [ ] Add workflow contribution interface
-- [ ] Add reference storage plugin
-- [ ] Add plugin conformance tests
-
----
-
-## M7 Web Console
-
-- [ ] Create Web Console baseline
-- [ ] Implement API client and error model
-- [ ] Implement resource-first navigation
-- [ ] Implement Cluster/Node/Storage/VM/Backup views
-- [ ] Implement Workflow/Task/Plugin/Audit views
-- [ ] Implement destructive confirmation UX
-- [ ] Implement status polling/event stream
-- [ ] Add UI smoke and safety tests
-
----
-
-## M8 Release Validation
-
-- [ ] Unit test gate
-- [ ] API contract gate
-- [ ] Migration compatibility gate
-- [ ] Workflow integration gate
-- [ ] Executor integration gate
-- [ ] Destructive safety gate
-- [ ] Backup/restore end-to-end gate
-- [ ] SQLite upgrade gate
-- [ ] PostgreSQL compatibility gate
-- [ ] Container packaging
-- [ ] Development deployment package
-- [ ] Release notes and upgrade guide
-- [ ] V2.0 acceptance report
-
----
-
-## Definition of Done
-
-Each task must include:
-
-- [ ] Implementation code
-- [ ] Unit tests
-- [ ] Relevant integration tests
-- [ ] Frozen-spec traceability
-- [ ] Backward compatibility assessment
-- [ ] Safety impact assessment
-- [ ] Documentation update
-- [ ] Passing CI
