@@ -10,7 +10,7 @@
 
 ## Programme Status
 
-- [ ] M0 Engineering Baseline
+- [x] M0 Engineering Baseline
 - [ ] M1 Persistence Foundation
 - [ ] M2 Runtime Convergence
 - [ ] M3 Workflow Engine
@@ -68,16 +68,16 @@ docs/implementation/CURRENT-API-EXECUTION-INVENTORY-v1.0.md
 
 - [x] T1.6 Add UUIDv7-compatible ID generator
 - [x] T1.7 Add common metadata/spec/status ORM mixin
-- [ ] T1.8 Implement generation and resource_version rules
-- [ ] T1.9 Implement soft-delete repository behaviour
-- [ ] T1.10 Implement optimistic concurrency exception model
+- [x] T1.8 Implement generation and resource_version rules
+- [x] T1.9 Implement soft-delete repository behaviour
+- [x] T1.10 Implement optimistic concurrency exception model
 
 ### M1 / E1.3 Initial Repositories
 
-- [ ] T1.11 Implement TaskRepository
-- [ ] T1.12 Implement WorkflowRepository
-- [ ] T1.13 Implement AuditEventRepository
-- [ ] T1.14 Implement ResourceEventRepository
+- [x] T1.11 Implement TaskRepository
+- [x] T1.12 Implement WorkflowRepository
+- [x] T1.13 Implement AuditEventRepository
+- [x] T1.14 Implement ResourceEventRepository
 
 ---
 
@@ -85,9 +85,9 @@ docs/implementation/CURRENT-API-EXECUTION-INVENTORY-v1.0.md
 
 - [x] Platform API imports and starts successfully
 - [x] CI executes lint, tests and architecture dependency checks
-- [ ] Workflow and Task records survive process restart
-- [ ] Database schema initializes through Alembic
-- [ ] Repository tests pass on SQLite
+- [x] Workflow and Task records survive process restart
+- [x] Database schema initializes through Alembic
+- [x] Repository tests pass on SQLite
 - [x] No existing playbook capability is removed
 - [x] No new Router -> Executor dependency is introduced
 
