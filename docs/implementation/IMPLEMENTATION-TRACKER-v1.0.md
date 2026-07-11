@@ -25,7 +25,7 @@
 ## P0 Blockers
 
 - [ ] Remove dual executor architecture
-- [ ] Converge Task and Job into one Task resource
+- [x] Converge Task and Job into one Task resource schema baseline
 - [x] Replace in-memory/file persistence with repositories and SQLite/Alembic baseline
 - [ ] Remove Router -> Executor direct dependencies
 - [ ] Make workflow execution asynchronous and durable
@@ -96,17 +96,17 @@ docs/implementation/CURRENT-API-AND-EXECUTION-INVENTORY-v1.0.md
 
 ## M2 Runtime Convergence
 
-- [ ] T2.1 Define canonical Task schema
-- [ ] T2.2 Add legacy TaskInfo compatibility adapter
-- [ ] T2.3 Add JobRecord compatibility adapter
-- [ ] T2.4 Persist Task lifecycle
-- [ ] T2.5 Enforce terminal-state immutability
-- [ ] T2.6 Define Executor protocol
-- [ ] T2.7 Implement ExecutorRegistry
-- [ ] T2.8 Implement AnsibleExecutor
-- [ ] T2.9 Add command argument safety validation
-- [ ] T2.10 Add kubectl/virtctl interface stubs
-- [ ] T2.11 Add timeout/cancellation contract
+- [x] T2.1 Define canonical Task schema
+- [x] T2.2 Add legacy TaskInfo compatibility adapter
+- [x] T2.3 Add JobRecord compatibility adapter
+- [x] T2.4 Persist Task lifecycle
+- [x] T2.5 Enforce terminal-state immutability
+- [x] T2.6 Define Executor protocol
+- [x] T2.7 Implement ExecutorRegistry
+- [x] T2.8 Implement AnsibleExecutor
+- [x] T2.9 Add command argument safety validation
+- [x] T2.10 Add kubectl/virtctl interface stubs
+- [x] T2.11 Add timeout/cancellation contract
 - [ ] T2.12 Implement queued TaskService
 - [ ] T2.13 Implement local worker loop
 - [ ] T2.14 Implement worker claim/heartbeat
