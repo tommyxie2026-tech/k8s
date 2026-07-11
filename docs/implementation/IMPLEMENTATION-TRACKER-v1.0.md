@@ -59,15 +59,15 @@ docs/implementation/CURRENT-API-EXECUTION-INVENTORY-v1.0.md
 ### M1 / E1.1 Database Bootstrap
 
 - [x] T1.1 Add SQLAlchemy 2.x and Alembic dependencies
-- [ ] T1.2 Add database settings and session factory
-- [ ] T1.3 Add initial Alembic environment
-- [ ] T1.4 Create SQLite development database path
+- [x] T1.2 Add database settings and session factory
+- [x] T1.3 Add initial Alembic environment
+- [x] T1.4 Create SQLite development database path
 - [ ] T1.5 Add PostgreSQL compatibility test configuration
 
 ### M1 / E1.2 Resource Persistence Baseline
 
-- [ ] T1.6 Add UUIDv7-compatible ID generator
-- [ ] T1.7 Add common metadata/spec/status ORM mixin
+- [x] T1.6 Add UUIDv7-compatible ID generator
+- [x] T1.7 Add common metadata/spec/status ORM mixin
 - [ ] T1.8 Implement generation and resource_version rules
 - [ ] T1.9 Implement soft-delete repository behaviour
 - [ ] T1.10 Implement optimistic concurrency exception model
@@ -124,3 +124,94 @@ docs/implementation/CURRENT-API-EXECUTION-INVENTORY-v1.0.md
 - [ ] T3.6 Implement timeout handling
 - [ ] T3.7 Add retry policy
 - [ ] T3.8 Implement bounded retry/backoff
+- [ ] T3.9 Add compensation model
+- [ ] T3.10 Add resume support
+- [ ] T3.11 Persist retry/compensation events
+- [ ] T3.12 Centralize destructive confirmation
+- [ ] T3.13 Convert hard-coded templates to versioned definitions
+- [ ] T3.14 Align workflow API with frozen P3
+
+---
+
+## M4 Resource Plane and API
+
+- [ ] Implement common Resource schemas
+- [ ] Implement generation/resource_version concurrency
+- [ ] Implement soft-delete behaviour
+- [ ] Implement repositories/services for Cluster, Node, StoragePool, StorageClass, VM, Backup, Plugin and User
+- [ ] Migrate routers to service layer
+- [ ] Add pagination/filtering
+- [ ] Add API contract tests
+
+---
+
+## M5 Security, Audit and Events
+
+- [ ] Implement request_id middleware
+- [ ] Implement actor context
+- [ ] Implement local development authentication
+- [ ] Define authorization policy interface
+- [ ] Protect destructive operations
+- [ ] Persist append-only AuditEvent
+- [ ] Persist ResourceEvent
+- [ ] Emit events for spec/status changes
+- [ ] Add audit and event query APIs
+- [ ] Add audit immutability tests
+
+---
+
+## M6 Plugin SDK
+
+- [ ] Define plugin manifest schema
+- [ ] Implement capability registry
+- [ ] Implement plugin discovery and lifecycle
+- [ ] Implement restricted Resource/Workflow clients
+- [ ] Add workflow contribution interface
+- [ ] Add reference storage plugin
+- [ ] Add plugin conformance tests
+
+---
+
+## M7 Web Console
+
+- [ ] Create Web Console baseline
+- [ ] Implement API client and error model
+- [ ] Implement resource-first navigation
+- [ ] Implement Cluster/Node/Storage/VM/Backup views
+- [ ] Implement Workflow/Task/Plugin/Audit views
+- [ ] Implement destructive confirmation UX
+- [ ] Implement status polling/event stream
+- [ ] Add UI smoke and safety tests
+
+---
+
+## M8 Release Validation
+
+- [ ] Unit test gate
+- [ ] API contract gate
+- [ ] Migration compatibility gate
+- [ ] Workflow integration gate
+- [ ] Executor integration gate
+- [ ] Destructive safety gate
+- [ ] Backup/restore end-to-end gate
+- [ ] SQLite upgrade gate
+- [ ] PostgreSQL compatibility gate
+- [ ] Container packaging
+- [ ] Development deployment package
+- [ ] Release notes and upgrade guide
+- [ ] V2.0 acceptance report
+
+---
+
+## Definition of Done
+
+Each task must include:
+
+- [ ] Implementation code
+- [ ] Unit tests
+- [ ] Relevant integration tests
+- [ ] Frozen-spec traceability
+- [ ] Backward compatibility assessment
+- [ ] Safety impact assessment
+- [ ] Documentation update
+- [ ] Passing CI
