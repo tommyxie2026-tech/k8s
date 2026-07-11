@@ -11,7 +11,7 @@
 ## Programme Status
 
 - [x] M0 Engineering Baseline
-- [ ] M1 Persistence Foundation
+- [x] M1 Persistence Foundation
 - [ ] M2 Runtime Convergence
 - [ ] M3 Workflow Engine
 - [ ] M4 Resource Plane and API
@@ -26,7 +26,7 @@
 
 - [ ] Remove dual executor architecture
 - [ ] Converge Task and Job into one Task resource
-- [ ] Replace in-memory/file persistence with repositories and SQLite/Alembic
+- [x] Replace in-memory/file persistence with repositories and SQLite/Alembic baseline
 - [ ] Remove Router -> Executor direct dependencies
 - [ ] Make workflow execution asynchronous and durable
 
@@ -53,7 +53,7 @@
 Inventory artifact:
 
 ```text
-docs/implementation/CURRENT-API-EXECUTION-INVENTORY-v1.0.md
+docs/implementation/CURRENT-API-AND-EXECUTION-INVENTORY-v1.0.md
 ```
 
 ### M1 / E1.1 Database Bootstrap
@@ -62,7 +62,7 @@ docs/implementation/CURRENT-API-EXECUTION-INVENTORY-v1.0.md
 - [x] T1.2 Add database settings and session factory
 - [x] T1.3 Add initial Alembic environment
 - [x] T1.4 Create SQLite development database path
-- [ ] T1.5 Add PostgreSQL compatibility test configuration
+- [x] T1.5 Add PostgreSQL compatibility test configuration
 
 ### M1 / E1.2 Resource Persistence Baseline
 
@@ -88,6 +88,7 @@ docs/implementation/CURRENT-API-EXECUTION-INVENTORY-v1.0.md
 - [x] Workflow and Task records survive process restart
 - [x] Database schema initializes through Alembic
 - [x] Repository tests pass on SQLite
+- [x] PostgreSQL schema compatibility guard exists
 - [x] No existing playbook capability is removed
 - [x] No new Router -> Executor dependency is introduced
 
