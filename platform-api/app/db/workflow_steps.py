@@ -4,8 +4,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.base import utc_now
-from app.db.exceptions import ResourceNotFoundError, ResourceVersionConflictError
+from app.db.exceptions import ResourceNotFoundError
 from app.db.models import WorkflowStepModel, WorkflowStepPhase
+from app.services.workflow_state import transition_step
 
 
 TERMINAL_STEP_PHASES = {
@@ -82,24 +83,20 @@ class WorkflowStepRepository:
         error: str | None = None,
     ) -> WorkflowStepModel:
         step = self.require(step_id)
-        next_phase = phase.value if isinstance(phase, WorkflowStepPhase) else phase
-
-        if step.phase in TERMINAL_STEP_PHASES and step.phase != next_phase:
-            raise ResourceVersionConflictError(
-                f"terminal workflow step cannot transition from {step.phase} to {next_phase}"
-            )
+        requested = phase.value if isinstance(phase, WorkflowStepPhase) else phase
+        next_phase = transition_step(step.phase, requested)
 
         now = utc_now()
-        step.phase = next_phase
+        step.phase = next_phase.value
         step.updated_at = now
         if task_id is not None:
             step.task_id = task_id
         if error is not None:
             step.error = error
-        if next_phase == WorkflowStepPhase.running.value:
+        if next_phase is WorkflowStepPhase.running:
             step.started_at = step.started_at or now
             step.attempt += 1
-        if next_phase in TERMINAL_STEP_PHASES:
+        if next_phase.value in TERMINAL_STEP_PHASES:
             step.finished_at = now
 
         self.session.flush()
