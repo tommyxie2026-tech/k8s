@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Any
 
 from sqlalchemy import JSON, Integer, String, Text
@@ -22,14 +23,27 @@ class WorkflowModel(ResourceMixin, Base):
     finished_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
+class TaskPhase(StrEnum):
+    pending = "pending"
+    queued = "queued"
+    running = "running"
+    succeeded = "succeeded"
+    failed = "failed"
+    cancelled = "cancelled"
+
+
 class TaskModel(ResourceMixin, Base):
     __tablename__ = "tasks"
 
     workflow_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     executor_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     command_ref: Mapped[str] = mapped_column(Text, nullable=False)
-    phase: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", index=True)
+    phase: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=TaskPhase.pending.value, index=True
+    )
     return_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    stdout: Mapped[str | None] = mapped_column(Text, nullable=True)
+    stderr: Mapped[str | None] = mapped_column(Text, nullable=True)
     log_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
     finished_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
@@ -40,17 +54,23 @@ class AuditEventModel(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_resource_id)
     actor_user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
-    actor_type: Mapped[str] = mapped_column(String(32), nullable=False, default="system", index=True)
+    actor_type: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="system", index=True
+    )
     action: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     target_kind: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     target_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     workflow_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     task_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
-    result: Mapped[str] = mapped_column(String(32), nullable=False, default="success", index=True)
+    result: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="success", index=True
+    )
     request_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     source_ip: Mapped[str | None] = mapped_column(String(128), nullable=True)
     details: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
-    created_at: Mapped[str] = mapped_column(String(32), nullable=False, default=utc_now, index=True)
+    created_at: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=utc_now, index=True
+    )
 
 
 class ResourceEventModel(Base):
@@ -66,4 +86,6 @@ class ResourceEventModel(Base):
     generation: Mapped[int | None] = mapped_column(Integer, nullable=True)
     resource_version: Mapped[str | None] = mapped_column(String(36), nullable=True)
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
-    created_at: Mapped[str] = mapped_column(String(32), nullable=False, default=utc_now, index=True)
+    created_at: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=utc_now, index=True
+    )
