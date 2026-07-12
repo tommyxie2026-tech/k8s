@@ -164,7 +164,9 @@ class TaskRepository(ResourceRepository[TaskModel]):
     ) -> TaskModel:
         task = self.require(task_id)
         if task.phase in {"succeeded", "failed", "cancelled"} and task.phase != phase:
-            raise ResourceVersionConflictError(f"terminal task cannot transition from {task.phase} to {phase}")
+            raise ResourceVersionConflictError(
+                f"terminal task cannot transition from {task.phase} to {phase}"
+            )
         task.phase = phase
         task.status = {**task.status, "phase": phase}
         if return_code is not None:
@@ -180,6 +182,140 @@ class TaskRepository(ResourceRepository[TaskModel]):
         task.touch_resource_version()
         self.session.flush()
         return task
+
+    def claim_next_queued(self, worker_id: str) -> TaskModel | None:
+        """Claim the oldest queued task for a local worker.
+
+        PostgreSQL uses row locking with SKIP LOCKED. SQLite relies on its
+        transaction-level writer serialization, which is sufficient for the
+        single-process V2.0 worker baseline.
+        """
+        statement = (
+            select(TaskModel)
+            .where(TaskModel.phase == "queued", TaskModel.deleted_at.is_(None))
+            .order_by(TaskModel.created_at, TaskModel.id)
+            .limit(1)
+        )
+        if self.session.bind is not None and self.session.bind.dialect.name != "sqlite":
+            statement = statement.with_for_update(skip_locked=True)
+
+        task = self.session.scalars(statement).first()
+        if task is None:
+            return None
+
+        now = utc_now()
+        task.phase = "running"
+        task.started_at = task.started_at or now
+        task.status = {
+            **task.status,
+            "phase": "running",
+            "worker_id": worker_id,
+            "heartbeat_at": now,
+        }
+        task.touch_resource_version()
+        self.session.flush()
+        return task
+
+    def heartbeat(self, task_id: str, worker_id: str) -> TaskModel:
+        task = self.require(task_id)
+        if task.phase != "running":
+            raise ResourceVersionConflictError(
+                f"cannot heartbeat task {task_id} while phase={task.phase}"
+            )
+        current_worker = task.status.get("worker_id")
+        if current_worker not in {None, worker_id}:
+            raise ResourceVersionConflictError(
+                f"task {task_id} is owned by worker {current_worker}, not {worker_id}"
+            )
+        task.status = {
+            **task.status,
+            "worker_id": worker_id,
+            "heartbeat_at": utc_now(),
+        }
+        task.touch_resource_version()
+        self.session.flush()
+        return task
+
+    def complete(
+        self,
+        task_id: str,
+        *,
+        return_code: int,
+        stdout: str,
+        stderr: str,
+        log_path: str | None,
+    ) -> TaskModel:
+        task = self.require(task_id)
+        if task.phase in {"succeeded", "failed", "cancelled"}:
+            raise ResourceVersionConflictError(f"task {task_id} is already terminal: {task.phase}")
+
+        phase = "succeeded" if return_code == 0 else "failed"
+        task.phase = phase
+        task.return_code = return_code
+        task.stdout = stdout
+        task.stderr = stderr
+        task.log_path = log_path
+        task.finished_at = utc_now()
+        task.status = {
+            **task.status,
+            "phase": phase,
+            "return_code": return_code,
+            "log_path": log_path,
+        }
+        task.touch_resource_version()
+        self.session.flush()
+        return task
+
+    def fail(
+        self,
+        task_id: str,
+        *,
+        error: str,
+        return_code: int = 1,
+        log_path: str | None = None,
+    ) -> TaskModel:
+        task = self.require(task_id)
+        if task.phase in {"succeeded", "failed", "cancelled"}:
+            return task
+        task.phase = "failed"
+        task.return_code = return_code
+        task.stderr = error
+        task.log_path = log_path
+        task.finished_at = utc_now()
+        task.status = {
+            **task.status,
+            "phase": "failed",
+            "return_code": return_code,
+            "error": error,
+            "log_path": log_path,
+        }
+        task.touch_resource_version()
+        self.session.flush()
+        return task
+
+    def recover_orphaned(self, stale_before: str) -> int:
+        """Return stale running tasks to the durable queue after worker loss."""
+        statement = select(TaskModel).where(
+            TaskModel.phase == "running",
+            TaskModel.deleted_at.is_(None),
+        )
+        recovered = 0
+        for task in self.session.scalars(statement):
+            heartbeat_at = task.status.get("heartbeat_at")
+            if heartbeat_at is not None and str(heartbeat_at) >= stale_before:
+                continue
+            task.phase = "queued"
+            task.status = {
+                **task.status,
+                "phase": "queued",
+                "recovered_from_worker": task.status.get("worker_id"),
+                "worker_id": None,
+                "heartbeat_at": None,
+            }
+            task.touch_resource_version()
+            recovered += 1
+        self.session.flush()
+        return recovered
 
 
 class AuditEventRepository:
