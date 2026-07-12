@@ -127,10 +127,10 @@ platform-api/tests/test_runtime_worker.py
 
 ## M3 Workflow Engine
 
-- [ ] T3.1 Persist Workflow and WorkflowStep models
-- [ ] T3.2 Implement workflow state machine
-- [ ] T3.3 Implement step dependency validation
-- [ ] T3.4 Implement failure propagation
+- [x] T3.1 Persist Workflow and WorkflowStep models
+- [x] T3.2 Implement workflow state machine
+- [x] T3.3 Implement step dependency validation
+- [x] T3.4 Implement failure propagation
 - [ ] T3.5 Implement cancellation
 - [ ] T3.6 Implement timeout handling
 - [ ] T3.7 Add retry policy
@@ -141,6 +141,15 @@ platform-api/tests/test_runtime_worker.py
 - [ ] T3.12 Centralize destructive confirmation
 - [ ] T3.13 Convert hard-coded templates to versioned definitions
 - [ ] T3.14 Align workflow API with frozen P3
+
+Workflow state artifacts:
+
+```text
+platform-api/app/db/models.py
+platform-api/app/db/workflow_steps.py
+platform-api/app/services/workflow_state.py
+platform-api/tests/test_workflow_state.py
+```
 
 ---
 
