@@ -12,7 +12,7 @@
 
 - [x] M0 Engineering Baseline
 - [x] M1 Persistence Foundation
-- [ ] M2 Runtime Convergence
+- [x] M2 Runtime Convergence
 - [ ] M3 Workflow Engine
 - [ ] M4 Resource Plane and API
 - [ ] M5 Security, Audit and Events
@@ -107,11 +107,21 @@ docs/implementation/CURRENT-API-AND-EXECUTION-INVENTORY-v1.0.md
 - [x] T2.9 Add command argument safety validation
 - [x] T2.10 Add kubectl/virtctl interface stubs
 - [x] T2.11 Add timeout/cancellation contract
-- [ ] T2.12 Implement queued TaskService
-- [ ] T2.13 Implement local worker loop
-- [ ] T2.14 Implement worker claim/heartbeat
-- [ ] T2.15 Persist log references
-- [ ] T2.16 Recover orphaned tasks
+- [x] T2.12 Implement queued TaskService
+- [x] T2.13 Implement local worker loop
+- [x] T2.14 Implement worker claim/heartbeat
+- [x] T2.15 Persist log references
+- [x] T2.16 Recover orphaned tasks
+
+Runtime artifacts:
+
+```text
+platform-api/app/services/task_service.py
+platform-api/app/runtime/executor.py
+platform-api/app/runtime/worker.py
+platform-api/tests/test_task_service.py
+platform-api/tests/test_runtime_worker.py
+```
 
 ---
 
