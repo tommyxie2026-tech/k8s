@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import JSON, Integer, String, Text
+from sqlalchemy import JSON, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, ResourceMixin, utc_now
@@ -21,6 +21,48 @@ class WorkflowModel(ResourceMixin, Base):
     phase: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", index=True)
     started_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
     finished_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+
+class WorkflowStepPhase(StrEnum):
+    pending = "pending"
+    queued = "queued"
+    running = "running"
+    succeeded = "succeeded"
+    failed = "failed"
+    skipped = "skipped"
+    cancelled = "cancelled"
+
+
+class WorkflowStepModel(Base):
+    __tablename__ = "workflow_steps"
+    __table_args__ = (
+        UniqueConstraint("workflow_id", "position", name="uq_workflow_steps_workflow_position"),
+        UniqueConstraint("workflow_id", "name", name="uq_workflow_steps_workflow_name"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_resource_id)
+    workflow_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    action: Mapped[str] = mapped_column(String(255), nullable=False)
+    executor_type: Mapped[str] = mapped_column(String(32), nullable=False, default="ansible")
+    command_ref: Mapped[str] = mapped_column(Text, nullable=False)
+    input: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    depends_on: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    phase: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=WorkflowStepPhase.pending.value, index=True
+    )
+    task_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    timeout_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    finished_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    created_at: Mapped[str] = mapped_column(String(32), nullable=False, default=utc_now, index=True)
+    updated_at: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=utc_now, onupdate=utc_now
+    )
 
 
 class TaskPhase(StrEnum):
