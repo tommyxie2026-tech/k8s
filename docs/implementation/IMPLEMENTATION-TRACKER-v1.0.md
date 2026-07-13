@@ -135,7 +135,7 @@ platform-api/tests/test_runtime_worker.py
 - [x] T3.6 Implement timeout handling
 - [x] T3.7 Add retry policy
 - [x] T3.8 Implement bounded retry/backoff
-- [ ] T3.9 Add compensation model
+- [x] T3.9 Add compensation model
 - [ ] T3.10 Add resume support
 - [ ] T3.11 Persist retry/compensation events
 - [ ] T3.12 Centralize destructive confirmation
@@ -152,10 +152,12 @@ platform-api/app/services/workflow_state.py
 platform-api/app/services/workflow_cancellation.py
 platform-api/app/services/workflow_timeout.py
 platform-api/app/services/workflow_retry.py
+platform-api/app/services/workflow_compensation.py
 platform-api/tests/test_workflow_state.py
 platform-api/tests/test_workflow_cancellation.py
 platform-api/tests/test_workflow_timeout.py
 platform-api/tests/test_workflow_retry.py
+platform-api/tests/test_workflow_compensation.py
 ```
 
 ---
