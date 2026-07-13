@@ -101,7 +101,7 @@ def test_executor_exception_is_contained_and_persisted(session: Session) -> None
     completed = service.execute(queued.id)
 
     assert completed.phase == TaskPhase.failed.value
-    assert completed.return_code is None
+    assert completed.return_code == 1
     assert completed.stderr == "simulated executor failure"
 
 
