@@ -8,6 +8,17 @@ from app.db.models import TaskModel, TaskPhase
 from app.utils.ids import new_resource_version
 
 
+TERMINAL_TASK_PHASES = {
+    TaskPhase.succeeded.value,
+    TaskPhase.failed.value,
+    TaskPhase.cancelled.value,
+}
+
+
+class InvalidTaskTransitionError(ValueError):
+    """Raised when a Task lifecycle transition violates the frozen state model."""
+
+
 class TaskRepository:
     """Persistence boundary for canonical Task resources."""
 
@@ -76,6 +87,11 @@ class TaskRepository:
         stderr: str | None = None,
         log_path: str | None = None,
     ) -> TaskModel:
+        if task.phase in TERMINAL_TASK_PHASES:
+            raise InvalidTaskTransitionError(
+                f"task {task.id} is already terminal ({task.phase}) and cannot transition to {phase.value}"
+            )
+
         task.phase = phase.value
         task.status = {**(task.status or {}), "phase": phase.value}
         task.return_code = return_code
@@ -84,7 +100,7 @@ class TaskRepository:
         task.log_path = log_path
         if phase == TaskPhase.running and task.started_at is None:
             task.started_at = utc_now()
-        if phase in {TaskPhase.succeeded, TaskPhase.failed, TaskPhase.cancelled}:
+        if phase.value in TERMINAL_TASK_PHASES:
             task.finished_at = utc_now()
         task.touch_resource_version()
         self.session.add(task)
