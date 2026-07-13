@@ -10,6 +10,34 @@ from app.db.workflow_steps import WorkflowStepRepository
 
 
 @dataclass(frozen=True)
+class RetryPolicy:
+    """Bounded exponential retry policy for workflow steps."""
+
+    initial_backoff_seconds: int = 5
+    multiplier: float = 2.0
+    max_backoff_seconds: int = 300
+
+    def __post_init__(self) -> None:
+        if self.initial_backoff_seconds < 0:
+            raise ValueError("initial_backoff_seconds must be non-negative")
+        if self.multiplier < 1:
+            raise ValueError("retry multiplier must be at least 1")
+        if self.max_backoff_seconds < self.initial_backoff_seconds:
+            raise ValueError("max_backoff_seconds must be >= initial_backoff_seconds")
+
+    def backoff_for_attempt(self, attempt: int) -> int:
+        """Return delay before the next attempt.
+
+        ``attempt`` is the number of attempts already started. The first failed
+        attempt therefore receives ``initial_backoff_seconds``.
+        """
+        if attempt < 1:
+            raise ValueError("retry attempt must be at least 1")
+        delay = self.initial_backoff_seconds * (self.multiplier ** (attempt - 1))
+        return min(int(delay), self.max_backoff_seconds)
+
+
+@dataclass(frozen=True)
 class RetryPlanResult:
     workflow_id: str
     step_id: str
@@ -36,6 +64,18 @@ class WorkflowRetryService:
         self.workflows = WorkflowRepository(session)
         self.audit_events = AuditEventRepository(session)
         self.resource_events = ResourceEventRepository(session)
+
+    def plan_bounded_retry(
+        self,
+        step_id: str,
+        *,
+        policy: RetryPolicy | None = None,
+        now: datetime | None = None,
+    ) -> RetryPlanResult:
+        step = self.steps.require(step_id)
+        selected_policy = policy or RetryPolicy()
+        backoff_seconds = selected_policy.backoff_for_attempt(step.attempt)
+        return self.plan_retry(step_id, backoff_seconds=backoff_seconds, now=now)
 
     def plan_retry(
         self,
