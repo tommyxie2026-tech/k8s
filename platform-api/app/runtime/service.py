@@ -5,10 +5,10 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.db.exceptions import ResourceVersionConflictError
 from app.db.models import TaskModel, TaskPhase
-from app.repositories.task import InvalidTaskTransitionError, TaskRepository
+from app.db.repositories import TaskRepository
 from app.runtime.executor import ExecutionRequest, ExecutorRegistry, default_executor_registry
-from app.utils.ids import new_resource_id
 
 
 class TaskNotFoundError(LookupError):
@@ -50,9 +50,7 @@ class RuntimeService:
     def submit(self, submission: TaskSubmission) -> TaskModel:
         """Create a durable queued Task without executing it in the caller request."""
 
-        task_id = new_resource_id()
         task = self.tasks.create(
-            task_id=task_id,
             name=submission.name,
             executor_type=submission.executor_type,
             command_ref=submission.command_ref,
@@ -61,8 +59,11 @@ class RuntimeService:
                 "extra_vars": submission.extra_vars,
                 "timeout_seconds": submission.timeout_seconds,
             },
+            phase=TaskPhase.queued.value,
         )
-        return self.tasks.update_phase(task, TaskPhase.queued)
+        self.session.commit()
+        self.session.refresh(task)
+        return task
 
     def execute(self, task_id: str) -> TaskModel:
         """Execute one queued Task and persist terminal state.
@@ -79,7 +80,9 @@ class RuntimeService:
                 f"task {task.id} cannot execute from phase {task.phase}"
             )
 
-        self.tasks.update_phase(task, TaskPhase.running)
+        self.tasks.set_phase(task.id, TaskPhase.running.value)
+        self.session.commit()
+
         executor = self.registry.get(task.executor_type)
         request = ExecutionRequest(
             task_id=task.id,
@@ -94,26 +97,21 @@ class RuntimeService:
         except Exception as exc:
             # Preserve diagnostic information while keeping Executor exceptions
             # behind the Runtime boundary.
-            current = self.tasks.get(task.id)
-            if current is None:
-                raise TaskNotFoundError(f"task disappeared during execution: {task.id}") from exc
-            return self.tasks.update_phase(
-                current,
-                TaskPhase.failed,
-                stderr=str(exc),
-            )
+            failed = self.tasks.fail(task.id, error=str(exc))
+            self.session.commit()
+            self.session.refresh(failed)
+            return failed
 
-        current = self.tasks.get(task.id)
-        if current is None:
-            raise TaskNotFoundError(f"task disappeared during execution: {task.id}")
-        terminal_phase = TaskPhase.succeeded if result.return_code == 0 else TaskPhase.failed
-        return self.tasks.update_phase(
-            current,
-            terminal_phase,
+        completed = self.tasks.complete(
+            task.id,
             return_code=result.return_code,
             stdout=result.stdout,
             stderr=result.stderr,
+            log_path=None,
         )
+        self.session.commit()
+        self.session.refresh(completed)
+        return completed
 
     def cancel(self, task_id: str) -> TaskModel:
         """Cancel a Task that has not reached a terminal state.
@@ -126,6 +124,10 @@ class RuntimeService:
         if task is None:
             raise TaskNotFoundError(f"task not found: {task_id}")
         try:
-            return self.tasks.update_phase(task, TaskPhase.cancelled)
-        except InvalidTaskTransitionError as exc:
+            cancelled = self.tasks.set_phase(task.id, TaskPhase.cancelled.value)
+            self.session.commit()
+            self.session.refresh(cancelled)
+            return cancelled
+        except ResourceVersionConflictError as exc:
+            self.session.rollback()
             raise TaskNotExecutableError(str(exc)) from exc
