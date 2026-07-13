@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -15,6 +17,13 @@ TERMINAL_STEP_PHASES = {
     WorkflowStepPhase.skipped.value,
     WorkflowStepPhase.cancelled.value,
 }
+
+
+def _parse_utc(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 class WorkflowStepRepository:
@@ -39,6 +48,8 @@ class WorkflowStepRepository:
             raise ValueError("workflow step position must be non-negative")
         if max_attempts < 1:
             raise ValueError("workflow step max_attempts must be at least 1")
+        if timeout_seconds is not None and timeout_seconds <= 0:
+            raise ValueError("workflow step timeout_seconds must be greater than zero")
 
         step = WorkflowStepModel(
             workflow_id=workflow_id,
@@ -73,6 +84,31 @@ class WorkflowStepRepository:
             .order_by(WorkflowStepModel.position, WorkflowStepModel.id)
         )
         return list(self.session.scalars(statement))
+
+    def list_overdue_running(
+        self,
+        *,
+        now: datetime | None = None,
+    ) -> list[WorkflowStepModel]:
+        """Return running steps whose configured timeout has elapsed.
+
+        Filtering is intentionally completed in Python so the comparison remains
+        portable between SQLite's RFC3339 text storage and PostgreSQL migration.
+        """
+        current = (now or datetime.now(UTC)).astimezone(UTC)
+        statement = select(WorkflowStepModel).where(
+            WorkflowStepModel.phase == WorkflowStepPhase.running.value,
+            WorkflowStepModel.timeout_seconds.is_not(None),
+            WorkflowStepModel.started_at.is_not(None),
+        )
+        overdue: list[WorkflowStepModel] = []
+        for step in self.session.scalars(statement):
+            assert step.started_at is not None
+            assert step.timeout_seconds is not None
+            deadline = _parse_utc(step.started_at) + timedelta(seconds=step.timeout_seconds)
+            if deadline <= current:
+                overdue.append(step)
+        return overdue
 
     def set_phase(
         self,
