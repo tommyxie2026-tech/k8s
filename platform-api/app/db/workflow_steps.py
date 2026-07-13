@@ -26,6 +26,10 @@ def _parse_utc(value: str) -> datetime:
     return parsed.astimezone(UTC)
 
 
+def _utc_text(value: datetime) -> str:
+    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
 class WorkflowStepRepository:
     def __init__(self, session: Session) -> None:
         self.session = session
@@ -109,6 +113,100 @@ class WorkflowStepRepository:
             if deadline <= current:
                 overdue.append(step)
         return overdue
+
+    def plan_retry(
+        self,
+        step_id: str,
+        *,
+        backoff_seconds: int,
+        now: datetime | None = None,
+    ) -> WorkflowStepModel:
+        """Persist a bounded retry plan for a failed step.
+
+        The step remains failed until ``retry_not_before`` is reached. This keeps
+        the delay durable across process restarts and prevents a scheduler from
+        bypassing the configured backoff.
+        """
+        if backoff_seconds < 0:
+            raise ValueError("workflow retry backoff_seconds must be non-negative")
+
+        step = self.require(step_id)
+        if step.phase != WorkflowStepPhase.failed.value:
+            raise ValueError(f"workflow step retry requires failed phase, got {step.phase}")
+        if step.attempt >= step.max_attempts:
+            raise ValueError(
+                f"workflow step retry exhausted: attempt={step.attempt}, max_attempts={step.max_attempts}"
+            )
+
+        current = (now or datetime.now(UTC)).astimezone(UTC)
+        retry_not_before = current + timedelta(seconds=backoff_seconds)
+        retry_state = dict(step.input.get("_retry") or {})
+        history = list(retry_state.get("history") or [])
+        history.append(
+            {
+                "attempt": step.attempt,
+                "task_id": step.task_id,
+                "error": step.error,
+                "failed_at": step.finished_at,
+            }
+        )
+        retry_state.update(
+            {
+                "backoff_seconds": backoff_seconds,
+                "retry_not_before": _utc_text(retry_not_before),
+                "history": history,
+            }
+        )
+        step.input = {**step.input, "_retry": retry_state}
+        step.updated_at = utc_now()
+        self.session.flush()
+        return step
+
+    def list_due_retries(
+        self,
+        *,
+        now: datetime | None = None,
+    ) -> list[WorkflowStepModel]:
+        current = (now or datetime.now(UTC)).astimezone(UTC)
+        statement = select(WorkflowStepModel).where(
+            WorkflowStepModel.phase == WorkflowStepPhase.failed.value,
+        )
+        due: list[WorkflowStepModel] = []
+        for step in self.session.scalars(statement):
+            retry_state = dict(step.input.get("_retry") or {})
+            retry_not_before = retry_state.get("retry_not_before")
+            if not retry_not_before:
+                continue
+            if step.attempt >= step.max_attempts:
+                continue
+            if _parse_utc(str(retry_not_before)) <= current:
+                due.append(step)
+        return due
+
+    def release_retry(self, step_id: str) -> WorkflowStepModel:
+        """Move a due failed step back to pending for a new Task attempt."""
+        step = self.require(step_id)
+        if step.phase != WorkflowStepPhase.failed.value:
+            raise ValueError(f"workflow retry release requires failed phase, got {step.phase}")
+        if step.attempt >= step.max_attempts:
+            raise ValueError(
+                f"workflow step retry exhausted: attempt={step.attempt}, max_attempts={step.max_attempts}"
+            )
+
+        retry_state = dict(step.input.get("_retry") or {})
+        if not retry_state.get("retry_not_before"):
+            raise ValueError("workflow step has no persisted retry plan")
+
+        retry_state["retry_not_before"] = None
+        step.input = {**step.input, "_retry": retry_state}
+        step.phase = WorkflowStepPhase.pending.value
+        step.task_id = None
+        step.error = None
+        step.started_at = None
+        step.finished_at = None
+        step.updated_at = utc_now()
+        self.session.flush()
+        return step
 
     def set_phase(
         self,
