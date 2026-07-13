@@ -132,9 +132,9 @@ platform-api/tests/test_runtime_worker.py
 - [x] T3.3 Implement step dependency validation
 - [x] T3.4 Implement failure propagation
 - [x] T3.5 Implement cancellation
-- [ ] T3.6 Implement timeout handling
-- [ ] T3.7 Add retry policy
-- [ ] T3.8 Implement bounded retry/backoff
+- [x] T3.6 Implement timeout handling
+- [x] T3.7 Add retry policy
+- [x] T3.8 Implement bounded retry/backoff
 - [ ] T3.9 Add compensation model
 - [ ] T3.10 Add resume support
 - [ ] T3.11 Persist retry/compensation events
@@ -150,8 +150,12 @@ platform-api/app/db/workflow_steps.py
 platform-api/app/db/workflow_cancellation.py
 platform-api/app/services/workflow_state.py
 platform-api/app/services/workflow_cancellation.py
+platform-api/app/services/workflow_timeout.py
+platform-api/app/services/workflow_retry.py
 platform-api/tests/test_workflow_state.py
 platform-api/tests/test_workflow_cancellation.py
+platform-api/tests/test_workflow_timeout.py
+platform-api/tests/test_workflow_retry.py
 ```
 
 ---
