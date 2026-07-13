@@ -11,6 +11,7 @@ PLATFORM_API_ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_TABLES = {
     "alembic_version",
     "workflows",
+    "workflow_steps",
     "tasks",
     "audit_events",
     "resource_events",
