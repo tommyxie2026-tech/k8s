@@ -9,7 +9,7 @@ from app.db.base import Base
 from app.db.models import AuditEventModel, ResourceEventModel
 from app.db.repositories import WorkflowRepository
 from app.db.workflow_steps import WorkflowStepRepository
-from app.services.workflow_retry import WorkflowRetryService
+from app.services.workflow_retry import RetryPolicy, WorkflowRetryService
 
 
 def make_session():
@@ -45,6 +45,38 @@ def create_failed_step(session, *, max_attempts: int = 3):
     steps.set_phase(step.id, "failed", error="temporary storage error")
     session.commit()
     return workflow, step
+
+
+def test_retry_policy_uses_bounded_exponential_backoff() -> None:
+    policy = RetryPolicy(
+        initial_backoff_seconds=5,
+        multiplier=2,
+        max_backoff_seconds=12,
+    )
+
+    assert policy.backoff_for_attempt(1) == 5
+    assert policy.backoff_for_attempt(2) == 10
+    assert policy.backoff_for_attempt(3) == 12
+    assert policy.backoff_for_attempt(10) == 12
+
+
+def test_plan_bounded_retry_uses_current_attempt() -> None:
+    session = make_session()
+    _, step = create_failed_step(session)
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=UTC)
+
+    result = WorkflowRetryService(session).plan_bounded_retry(
+        step.id,
+        policy=RetryPolicy(
+            initial_backoff_seconds=7,
+            multiplier=2,
+            max_backoff_seconds=60,
+        ),
+        now=now,
+    )
+
+    assert result.attempt == 1
+    assert result.backoff_seconds == 7
 
 
 def test_plan_retry_persists_backoff_and_failure_history() -> None:
@@ -113,7 +145,16 @@ def test_retry_is_bounded_by_max_attempts() -> None:
     _, step = create_failed_step(session, max_attempts=1)
 
     with pytest.raises(ValueError, match="retry exhausted"):
-        WorkflowRetryService(session).plan_retry(step.id, backoff_seconds=5)
+        WorkflowRetryService(session).plan_bounded_retry(step.id)
+
+
+def test_retry_policy_validation() -> None:
+    with pytest.raises(ValueError, match="initial_backoff_seconds"):
+        RetryPolicy(initial_backoff_seconds=-1)
+    with pytest.raises(ValueError, match="multiplier"):
+        RetryPolicy(multiplier=0.5)
+    with pytest.raises(ValueError, match="max_backoff_seconds"):
+        RetryPolicy(initial_backoff_seconds=10, max_backoff_seconds=5)
 
 
 def test_retry_rejects_negative_backoff() -> None:
