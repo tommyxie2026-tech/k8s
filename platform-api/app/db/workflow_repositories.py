@@ -58,6 +58,17 @@ class WorkflowStepRepository:
         )
         return list(self.session.scalars(statement))
 
+    def list_running_with_timeout(self) -> list[WorkflowStepModel]:
+        """Return running steps that have an explicit positive timeout policy."""
+        statement = (
+            select(WorkflowStepModel)
+            .where(WorkflowStepModel.phase == WorkflowStepPhase.running.value)
+            .where(WorkflowStepModel.timeout_seconds.is_not(None))
+            .where(WorkflowStepModel.timeout_seconds > 0)
+            .order_by(WorkflowStepModel.started_at)
+        )
+        return list(self.session.scalars(statement))
+
     def get(self, step_id: str) -> WorkflowStepModel | None:
         return self.session.get(WorkflowStepModel, step_id)
 
