@@ -27,7 +27,8 @@ class WorkflowResumeService:
     * previously succeeded steps are preserved;
     * the selected step and all later non-succeeded steps are reset to pending;
     * old Task bindings and terminal execution details are cleared;
-    * retry and compensation activity must not be pending.
+    * retry and compensation activity must not be pending;
+    * every reset preserves execution history in ``input._resume.history``.
     """
 
     def __init__(self, session: Session) -> None:
@@ -67,22 +68,10 @@ class WorkflowResumeService:
                 preserved_step_ids.append(step.id)
                 continue
 
-            step.phase = "pending"
-            step.task_id = None
-            step.error = None
-            step.started_at = None
-            step.finished_at = None
-            step.updated_at = now
-            step.input = {
-                **step.input,
-                "_resume": {
-                    "resumed_from_step_id": selected.id,
-                    "previous_attempt": step.attempt,
-                    "resumed_at": now,
-                },
-            }
+            self.steps.reset_for_resume(step.id, resumed_at=now)
             reset_step_ids.append(step.id)
 
+        resume_count = int(workflow.status.get("resume_count") or 0) + 1
         workflow.phase = "queued"
         workflow.finished_at = None
         workflow.status = {
@@ -90,10 +79,17 @@ class WorkflowResumeService:
             "phase": "queued",
             "resume_pending": True,
             "resume_step_id": selected.id,
+            "resume_count": resume_count,
             "resumed_at": now,
         }
         workflow.touch_resource_version()
 
+        details = {
+            "resume_step_id": selected.id,
+            "resume_count": resume_count,
+            "reset_step_ids": reset_step_ids,
+            "preserved_step_ids": preserved_step_ids,
+        }
         self.audit_events.append(
             action="workflow.resumed",
             actor_user_id=actor_user_id,
@@ -101,11 +97,7 @@ class WorkflowResumeService:
             target_kind="Workflow",
             target_id=workflow.id,
             workflow_id=workflow.id,
-            details={
-                "resume_step_id": selected.id,
-                "reset_step_ids": reset_step_ids,
-                "preserved_step_ids": preserved_step_ids,
-            },
+            details=details,
         )
         self.resource_events.append(
             event_type="WorkflowResumed",
@@ -114,12 +106,7 @@ class WorkflowResumeService:
             actor_user_id=actor_user_id,
             workflow_id=workflow.id,
             resource_version=workflow.resource_version,
-            payload={
-                "resume_step_id": selected.id,
-                "reset_step_ids": reset_step_ids,
-                "preserved_step_ids": preserved_step_ids,
-                "phase": workflow.phase,
-            },
+            payload={**details, "phase": workflow.phase},
         )
         self.session.commit()
 
