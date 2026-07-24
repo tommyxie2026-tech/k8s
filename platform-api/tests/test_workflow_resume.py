@@ -81,6 +81,7 @@ def test_resume_preserves_successful_steps_and_resets_failed_path() -> None:
     assert refreshed_workflow.finished_at is None
     assert refreshed_workflow.status["resume_pending"] is True
     assert refreshed_workflow.status["resume_step_id"] == restore.id
+    assert refreshed_workflow.status["resume_count"] == 1
 
     assert refreshed_preflight.phase == "succeeded"
     assert refreshed_preflight.task_id == "task-preflight"
@@ -90,9 +91,21 @@ def test_resume_preserves_successful_steps_and_resets_failed_path() -> None:
     assert refreshed_restore.error is None
     assert refreshed_restore.started_at is None
     assert refreshed_restore.finished_at is None
+    assert refreshed_restore.input["_resume"]["history"] == [
+        {
+            "phase": "failed",
+            "attempt": 1,
+            "task_id": "task-restore",
+            "error": "restore failed",
+            "started_at": restore.started_at,
+            "finished_at": restore.finished_at,
+            "resumed_at": refreshed_workflow.status["resumed_at"],
+        }
+    ]
 
     assert refreshed_verify.phase == "pending"
     assert refreshed_verify.task_id is None
+    assert refreshed_verify.input["_resume"]["history"][0]["phase"] == "pending"
 
     assert result.reset_step_ids == (restore.id, verify.id)
     assert result.preserved_step_ids == (preflight.id,)
@@ -114,7 +127,9 @@ def test_resume_persists_audit_and_resource_events() -> None:
     assert [event.action for event in audit_events] == ["workflow.resumed"]
     assert audit_events[0].actor_user_id == "user-1"
     assert audit_events[0].details["resume_step_id"] == restore.id
+    assert audit_events[0].details["resume_count"] == 1
     assert [event.event_type for event in resource_events] == ["WorkflowResumed"]
+    assert resource_events[0].payload["resume_count"] == 1
 
 
 def test_resume_requires_failed_workflow() -> None:
