@@ -68,6 +68,8 @@ def create_failed_workflow(session):
 def test_resume_preserves_successful_steps_and_resets_failed_path() -> None:
     session = make_session()
     workflow, preflight, restore, verify = create_failed_workflow(session)
+    previous_started_at = restore.started_at
+    previous_finished_at = restore.finished_at
 
     result = WorkflowResumeService(session).resume_from_step(workflow.id, restore.id)
 
@@ -97,8 +99,8 @@ def test_resume_preserves_successful_steps_and_resets_failed_path() -> None:
             "attempt": 1,
             "task_id": "task-restore",
             "error": "restore failed",
-            "started_at": restore.started_at,
-            "finished_at": restore.finished_at,
+            "started_at": previous_started_at,
+            "finished_at": previous_finished_at,
             "resumed_at": refreshed_workflow.status["resumed_at"],
         }
     ]
