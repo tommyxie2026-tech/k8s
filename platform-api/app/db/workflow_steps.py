@@ -208,6 +208,42 @@ class WorkflowStepRepository:
         self.session.flush()
         return step
 
+    def reset_for_resume(self, step_id: str, *, resumed_at: str | None = None) -> WorkflowStepModel:
+        """Reset a non-successful step for an explicit workflow resume.
+
+        Resume is an administrative workflow operation rather than a normal state
+        transition, so terminal failed/cancelled/skipped steps may be reset. The
+        previous execution details are retained in ``input._resume.history``.
+        """
+        step = self.require(step_id)
+        if step.phase == WorkflowStepPhase.succeeded.value:
+            raise ValueError("succeeded workflow step must not be reset during resume")
+
+        timestamp = resumed_at or utc_now()
+        resume_state = dict(step.input.get("_resume") or {})
+        history = list(resume_state.get("history") or [])
+        history.append(
+            {
+                "phase": step.phase,
+                "attempt": step.attempt,
+                "task_id": step.task_id,
+                "error": step.error,
+                "started_at": step.started_at,
+                "finished_at": step.finished_at,
+                "resumed_at": timestamp,
+            }
+        )
+        resume_state["history"] = history
+        step.input = {**step.input, "_resume": resume_state}
+        step.phase = WorkflowStepPhase.pending.value
+        step.task_id = None
+        step.error = None
+        step.started_at = None
+        step.finished_at = None
+        step.updated_at = timestamp
+        self.session.flush()
+        return step
+
     def set_phase(
         self,
         step_id: str,
