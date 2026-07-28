@@ -3,6 +3,7 @@ import time
 from app.schemas.workflows import WorkflowCreateRequest, WorkflowRecord, WorkflowStatus, WorkflowStep, StepStatus
 from app.services.audit import audit
 from app.services.executor import executor
+from app.services.workflow_safety import WorkflowConfirmationError, workflow_safety_policy
 from app.services.workflow_store import workflow_store
 
 
@@ -49,12 +50,16 @@ class WorkflowEngine:
             raise ValueError(f"unknown workflow: {request.name}")
 
         template = WORKFLOW_TEMPLATES[request.name]
-        destructive = bool(template.get("destructive", False))
-        if destructive:
-            required_phrase = template.get("confirm_phrase", "CONFIRM")
-            if not request.confirm or request.confirm_phrase != required_phrase:
-                audit("workflow.rejected", name=request.name, reason="missing destructive confirmation")
-                raise PermissionError(f"workflow {request.name} requires confirm=true and confirm_phrase={required_phrase}")
+        try:
+            safety = workflow_safety_policy.require_confirmation(
+                template,
+                confirm=request.confirm,
+                confirm_phrase=request.confirm_phrase,
+                workflow_name=request.name,
+            )
+        except WorkflowConfirmationError:
+            audit("workflow.rejected", name=request.name, reason="missing destructive confirmation")
+            raise
 
         workflow_id = f"wf-{int(time.time() * 1000)}"
         steps: list[WorkflowStep] = []
@@ -63,9 +68,19 @@ class WorkflowEngine:
             extra_vars.update(request.params)
             steps.append(WorkflowStep(name=step_name, action=f"{request.name}.{step_name}", playbook=playbook, extra_vars=extra_vars))
 
-        record = WorkflowRecord(workflow_id=workflow_id, name=request.name, destructive=destructive, steps=steps)
+        record = WorkflowRecord(
+            workflow_id=workflow_id,
+            name=request.name,
+            destructive=safety.destructive,
+            steps=steps,
+        )
         workflow_store.save(record)
-        audit("workflow.created", workflow_id=workflow_id, name=request.name, destructive=destructive)
+        audit(
+            "workflow.created",
+            workflow_id=workflow_id,
+            name=request.name,
+            destructive=safety.destructive,
+        )
         self.run(workflow_id)
         return workflow_store.get(workflow_id) or record
 
