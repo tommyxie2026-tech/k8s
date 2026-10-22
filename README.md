@@ -212,7 +212,7 @@ ansible-playbook -i inventories/hosts.yml 0401-renew-component-certs.yml -e conf
 
 | 组件 | 当前默认版本 |
 |------|--------------|
-| Kubernetes | 1.36.1 |
+| Kubernetes | 1.36.5 |
 | etcd | 3.6.11 |
 | Containerd | 2.3.0 |
 | runc | 1.3.5 |
