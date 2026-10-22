@@ -171,6 +171,16 @@ jobs:
           find "files/${{ inputs.arch }}" -maxdepth 2 -type f -printf '%p %s bytes\n' | sort
           find inventories/group_vars -maxdepth 1 -type f -name 'download-checksums-${{ inputs.arch }}.yml' -print -exec cat {} \;
 
+      - name: Publish compiled binaries as workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: k8s-binaries-${{ inputs.arch }}-${{ github.run_number }}
+          path: |
+            files/${{ inputs.arch }}/
+            inventories/group_vars/download-checksums-${{ inputs.arch }}.yml
+          retention-days: 14
+          if-no-files-found: error
+
       - name: Prepare binary cache branch
         if: ${{ inputs.commit_changes == 'true' }}
         run: |
