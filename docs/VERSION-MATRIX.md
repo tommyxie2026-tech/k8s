@@ -4,7 +4,7 @@
 
 | 组件 | 当前默认版本 | 变量名 | 说明 |
 |------|--------------|--------|------|
-| Kubernetes | 1.36.1 | `kubernetes_version` | 控制面、kubelet、kubectl、kube-proxy 镜像版本 |
+| Kubernetes | 1.36.5 | `kubernetes_version` | 控制面、kubelet、kubectl、kube-proxy 镜像版本 |
 | etcd | 3.6.11 | `etcd_version` | etcd 二进制版本 |
 | Containerd | 2.3.0 | `containerd_version` | CRI 运行时版本 |
 | runc | 1.3.5 | `runc_version` | OCI runtime 版本 |
