@@ -5,9 +5,9 @@
 
 components:
   - component: kubernetes
-    version: "1.36.1"
+    version: "1.36.5"
     git: "https://github.com/kubernetes/kubernetes.git"
-    tag: "v1.36.1"
+    tag: "v1.36.5"
     build:
       type: make
       command: "make WHAT='cmd/kube-apiserver cmd/kube-controller-manager cmd/kube-scheduler cmd/kubelet cmd/kube-proxy cmd/kubectl'"
