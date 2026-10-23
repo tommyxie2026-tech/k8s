@@ -97,24 +97,24 @@
     echo "===== Pods missing nodeSelector/affinity/tolerations quick scan ====="
     {{ download_arch_dir }}/kubectl get pods -A -o json \
       --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig \
-      | python3 - <<'PY'
-import json, sys
-try:
-    data=json.load(sys.stdin)
-except Exception as e:
-    print(f"unable to parse pods json: {e}")
-    sys.exit(0)
-for item in data.get('items', []):
-    spec=item.get('spec', {})
-    ns=item.get('metadata', {}).get('namespace')
-    name=item.get('metadata', {}).get('name')
-    node=spec.get('nodeName', '')
-    selector=spec.get('nodeSelector') or {}
-    affinity=spec.get('affinity') or {}
-    tolerations=spec.get('tolerations') or []
-    if not selector and not affinity and not tolerations:
-        print(f"WARN pod {ns}/{name} on {node}: no nodeSelector/affinity/tolerations")
-PY
+      | python3 -c '
+    import json, sys
+    try:
+        data=json.load(sys.stdin)
+    except Exception as e:
+        print(f"unable to parse pods json: {e}")
+        sys.exit(0)
+    for item in data.get('"'"'items'"'"', []):
+        spec=item.get('"'"'spec'"'"', {})
+        ns=item.get('"'"'metadata'"'"', {}).get('"'"'namespace'"'"')
+        name=item.get('"'"'metadata'"'"', {}).get('"'"'name'"'"')
+        node=spec.get('"'"'nodeName'"'"', '"'"''"'"')
+        selector=spec.get('"'"'nodeSelector'"'"') or {}
+        affinity=spec.get('"'"'affinity'"'"') or {}
+        tolerations=spec.get('"'"'tolerations'"'"') or []
+        if not selector and not affinity and not tolerations:
+            print(f"WARN pod {ns}/{name} on {node}: no nodeSelector/affinity/tolerations")
+    '
   args:
     executable: /bin/bash
   register: scheduling_pod_policy_scan
@@ -132,22 +132,22 @@ PY
     echo "===== VMI placement check ====="
     {{ download_arch_dir }}/kubectl get vmi -A -o json \
       --kubeconfig={{ local_cluster_config_dir }}/kubeconfig/admin.kubeconfig \
-      | python3 - <<'PY'
-import json, subprocess, sys, os
-try:
-    data=json.load(sys.stdin)
-except Exception as e:
-    print(f"unable to parse vmi json: {e}")
-    sys.exit(0)
-for item in data.get('items', []):
-    ns=item.get('metadata', {}).get('namespace')
-    name=item.get('metadata', {}).get('name')
-    node=item.get('status', {}).get('nodeName') or item.get('spec', {}).get('nodeName') or ''
-    if not node:
-        print(f"WARN vmi {ns}/{name}: node not assigned")
-        continue
-    print(f"INFO vmi {ns}/{name}: node={node}; verify node has k8s.io/node-pool=vm and kubevirt.io/kvm=true")
-PY
+      | python3 -c '
+    import json, subprocess, sys, os
+    try:
+        data=json.load(sys.stdin)
+    except Exception as e:
+        print(f"unable to parse vmi json: {e}")
+        sys.exit(0)
+    for item in data.get('"'"'items'"'"', []):
+        ns=item.get('"'"'metadata'"'"', {}).get('"'"'namespace'"'"')
+        name=item.get('"'"'metadata'"'"', {}).get('"'"'name'"'"')
+        node=item.get('"'"'status'"'"', {}).get('"'"'nodeName'"'"') or item.get('"'"'spec'"'"', {}).get('"'"'nodeName'"'"') or '"'"''"'"'
+        if not node:
+            print(f"WARN vmi {ns}/{name}: node not assigned")
+            continue
+        print(f"INFO vmi {ns}/{name}: node={node}; verify node has k8s.io/node-pool=vm and kubevirt.io/kvm=true")
+    '
   args:
     executable: /bin/bash
   register: scheduling_vmi_policy_scan
