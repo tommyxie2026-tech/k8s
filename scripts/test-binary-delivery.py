@@ -82,8 +82,8 @@ class DeliveryTests(unittest.TestCase):
             folder.mkdir(parents=True)
             item = folder / "kubectl"
             item.write_text(
-                "version https://git-lfs.github.com/spec/v1\\n"
-                "oid sha256:" + ("f" * 64) + "\\nsize 123\\n"
+                "version https://git-lfs.github.com/spec/v1\n"
+                "oid sha256:" + ("f" * 64) + "\nsize 123\n"
             )
             self.assertEqual(run_bash("write-sha256sums.sh", str(folder)).returncode, 0)
             result = run_bash("verify-binary-cache.sh", str(folder))
