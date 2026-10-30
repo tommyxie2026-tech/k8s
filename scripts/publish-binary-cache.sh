@@ -8,10 +8,14 @@ CACHE_BRANCH="binary-cache/${ARCH}"
 bash scripts/verify-binary-cache.sh "files/${ARCH}"
 test -f "inventories/group_vars/download-checksums-${ARCH}.yml"
 TMP="$(mktemp -d)"
+cp "scripts/verify-binary-cache.sh" "${TMP}/verify-binary-cache.sh"
 trap 'rm -rf "${TMP}"; git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git" >/dev/null 2>&1 || true' EXIT
 mkdir -p "${TMP}/files/${ARCH}"
 cp -a "files/${ARCH}/." "${TMP}/files/${ARCH}/"
 cp "inventories/group_vars/download-checksums-${ARCH}.yml" "${TMP}/download-checksums.yml"
+# Uploaded artifacts are untracked on master; remove them before switching branches.
+rm -rf "files/${ARCH}"
+rm -f "inventories/group_vars/download-checksums-${ARCH}.yml"
 git lfs install --local
 if git ls-remote --exit-code --heads origin "${CACHE_BRANCH}" >/dev/null; then
   git fetch origin "refs/heads/${CACHE_BRANCH}:refs/remotes/origin/${CACHE_BRANCH}"
@@ -25,7 +29,7 @@ mkdir -p "files/${ARCH}" inventories/group_vars
 rm -rf "files/${ARCH}"
 cp -a "${TMP}/files/${ARCH}" "files/${ARCH}"
 cp "${TMP}/download-checksums.yml" "inventories/group_vars/download-checksums-${ARCH}.yml"
-bash scripts/verify-binary-cache.sh "files/${ARCH}"
+bash "${TMP}/verify-binary-cache.sh" "files/${ARCH}"
 git config user.name "github-actions[bot]"
 git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 git add .gitattributes

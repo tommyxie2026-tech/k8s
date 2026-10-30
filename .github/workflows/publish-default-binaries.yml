@@ -85,8 +85,13 @@ jobs:
       - name: Verify downloaded artifacts
         env:
           ARCH: ${{ inputs.arch }}
+          STRICT_REQUIRED: ${{ inputs.source_mode == 'release' || inputs.stage == 'all' || inputs.stage == 'stage4-kubernetes' }}
         run: |
-          bash scripts/verify-binary-cache.sh "files/${ARCH}" ${{ inputs.source_mode == 'release' || inputs.stage == 'all' || inputs.stage == 'stage4-kubernetes' && '--strict' || '' }}
+          if [[ "${STRICT_REQUIRED}" == true ]]; then
+            bash scripts/verify-binary-cache.sh "files/${ARCH}" --strict
+          else
+            bash scripts/verify-binary-cache.sh "files/${ARCH}"
+          fi
       - name: Publish to architecture cache branch
         env:
           ARCH: ${{ inputs.arch }}
