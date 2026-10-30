@@ -17,6 +17,10 @@ cp "inventories/group_vars/download-checksums-${ARCH}.yml" "${TMP}/download-chec
 rm -rf "files/${ARCH}"
 rm -f "inventories/group_vars/download-checksums-${ARCH}.yml"
 git lfs install --local
+# The publisher is the only job authorized to use this credential. Its
+# checkout deliberately has persist-credentials=false, so authenticate before
+# fetching either an existing private cache branch or pushing new LFS objects.
+git remote set-url origin "https://x-access-token:${BINARY_CACHE_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
 if git ls-remote --exit-code --heads origin "${CACHE_BRANCH}" >/dev/null; then
   git fetch origin "refs/heads/${CACHE_BRANCH}:refs/remotes/origin/${CACHE_BRANCH}"
   GIT_LFS_SKIP_SMUDGE=1 git checkout -B "${CACHE_BRANCH}" "refs/remotes/origin/${CACHE_BRANCH}"
@@ -40,6 +44,5 @@ if git diff --cached --quiet; then
 fi
 git commit -m "cache: publish ${ARCH} binaries from ${SOURCE_SHA:-manual}"
 # Publishing token is only available in this protected publication job.
-git remote set-url origin "https://x-access-token:${BINARY_CACHE_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
 git lfs push origin HEAD
 git push origin "HEAD:refs/heads/${CACHE_BRANCH}"
