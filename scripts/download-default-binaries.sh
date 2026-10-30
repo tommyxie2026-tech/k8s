@@ -79,7 +79,7 @@ download "https://github.com/containernetworking/plugins/releases/download/v${CN
 download "https://raw.githubusercontent.com/projectcalico/calico/v${CALICO_VERSION}/manifests/calico.yaml" \
   "${FILES_DIR}/calico.yaml"
 
-find "${FILES_DIR}" -type f -maxdepth 1 -print0 | sort -z | xargs -0 sha256sum > "${FILES_DIR}/SHA256SUMS"
+bash scripts/write-sha256sums.sh "${FILES_DIR}"
 
 echo "==> downloaded default binaries to ${FILES_DIR}"
 echo "==> checksum file: ${FILES_DIR}/SHA256SUMS"

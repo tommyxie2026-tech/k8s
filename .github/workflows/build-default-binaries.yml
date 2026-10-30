@@ -1,227 +1,60 @@
-name: Build default binaries
+name: Build default binaries (read-only validation)
 
 on:
   workflow_dispatch:
     inputs:
       arch:
-        description: "Target architecture, e.g. amd64 or arm64"
-        required: true
+        description: Target architecture
+        type: choice
+        options: [amd64, arm64]
         default: amd64
       stage:
-        description: "Build stage: stage1-light, stage2-core, stage3-runtime, stage4-kubernetes, custom, or all"
-        required: true
+        description: Build stage
+        type: choice
+        options: [stage1-light, stage2-core, stage3-runtime, stage4-kubernetes, custom, all]
         default: stage1-light
       components:
-        description: "Component list for custom stage, comma-separated, or all"
-        required: false
+        description: Comma-separated components for custom stage
+        type: string
         default: ''
-      target_branch:
-        description: "Branch to store built binary cache"
-        required: true
-        default: binary-cache/amd64
-      commit_changes:
-        description: "Commit built files back to repository"
-        required: true
-        default: 'true'
+      restore_cache:
+        description: Read existing binary-cache branch without writing to it
+        type: boolean
+        default: false
       strict_package:
-        description: "Require all deploy archives to be complete"
-        required: true
-        default: 'false'
+        description: Require all deploy artifacts; use stage=all or restore a complete cache
+        type: boolean
+        default: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  build-default-binaries:
-    name: Build default binaries from source tags
+  validate:
+    name: Build and verify without repository write access
     runs-on: ubuntu-latest
     timeout-minutes: 360
-    env:
-      BINARY_CACHE_TOKEN: ${{ secrets.BINARY_CACHE_TOKEN }}
+    permissions:
+      contents: read
     steps:
-      - name: Checkout source branch
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
           lfs: false
-          token: ${{ github.token }}
-
-      - name: Validate binary cache push token
-        if: ${{ inputs.commit_changes == 'true' }}
-        run: |
-          set -euo pipefail
-          if [[ -z "${BINARY_CACHE_TOKEN}" ]]; then
-            echo "::error::commit_changes=true requires repository secret BINARY_CACHE_TOKEN. This token must be a PAT with repository Contents write access and Git LFS upload permission. GitHub's default github-actions[bot] token may fail to upload new LFS objects."
-            exit 1
-          fi
-
-      - name: Configure Git LFS
-        run: |
-          git lfs install --local
-          git lfs track "files/**/*"
-
-      - name: Configure Git identity and authenticated remote
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if [[ -n "${BINARY_CACHE_TOKEN}" ]]; then
-            git remote set-url origin "https://x-access-token:${BINARY_CACHE_TOKEN}@github.com/${{ github.repository }}.git"
-          fi
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+          persist-credentials: true
+      - uses: ./.github/actions/prepare-binaries
         with:
-          python-version: '3.11'
-
-      - name: Install manifest validation dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pyyaml
-
-      - name: Validate source manifest
-        run: python scripts/validate-source-manifest.py
-
-      - name: Check source and deploy versions
-        run: python scripts/check-version-consistency.py
-
-      - name: Resolve build components
-        id: resolve-components
-        run: |
-          set -euo pipefail
-          STAGE="${{ inputs.stage }}"
-          CUSTOM_COMPONENTS="${{ inputs.components }}"
-          case "${STAGE}" in
-            stage1-light)
-              COMPONENTS="cfssl,runc"
-              ;;
-            stage2-core)
-              COMPONENTS="cni-plugins,etcd"
-              ;;
-            stage3-runtime)
-              COMPONENTS="containerd"
-              ;;
-            stage4-kubernetes)
-              COMPONENTS="kubernetes"
-              ;;
-            custom)
-              if [[ -z "${CUSTOM_COMPONENTS}" ]]; then
-                echo "::error::components is required when stage=custom"
-                exit 1
-              fi
-              COMPONENTS="${CUSTOM_COMPONENTS}"
-              ;;
-            all)
-              COMPONENTS="all"
-              ;;
-            *)
-              echo "::error::Unsupported stage: ${STAGE}"
-              exit 1
-              ;;
-          esac
-          echo "components=${COMPONENTS}" >> "${GITHUB_OUTPUT}"
-          echo "Resolved components: ${COMPONENTS}"
-
-      - name: Restore existing binary cache from target branch
-        if: ${{ inputs.commit_changes == 'true' }}
-        run: |
-          set -euo pipefail
-          ARCH="${{ inputs.arch }}"
-          TARGET_BRANCH="${{ inputs.target_branch }}"
-          if git ls-remote --exit-code --heads origin "${TARGET_BRANCH}" >/dev/null 2>&1; then
-            TMP_CACHE="$(mktemp -d)"
-            git fetch origin "${TARGET_BRANCH}"
-            git archive "origin/${TARGET_BRANCH}" "files/${ARCH}" 2>/dev/null | tar -x -C "${TMP_CACHE}" || true
-            if [[ -d "${TMP_CACHE}/files/${ARCH}" ]]; then
-              mkdir -p "files/${ARCH}"
-              rsync -a "${TMP_CACHE}/files/${ARCH}/" "files/${ARCH}/"
-              echo "Restored existing files/${ARCH} from ${TARGET_BRANCH}"
-            else
-              echo "No existing files/${ARCH} found in ${TARGET_BRANCH}"
-            fi
-            rm -rf "${TMP_CACHE}"
-          else
-            echo "Target branch ${TARGET_BRANCH} does not exist yet; starting fresh."
-          fi
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.24.x'
-          cache: true
-
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential rsync curl jq python3-yaml pkg-config libseccomp-dev
-
-      - name: Build binaries from source tags
-        env:
-          ARCH: ${{ inputs.arch }}
-          BUILD_COMPONENTS: ${{ steps.resolve-components.outputs.components }}
-          STRICT_PACKAGE: ${{ inputs.strict_package }}
-        run: bash scripts/build-default-binaries.sh
-
-      - name: Generate download checksum vars
-        run: |
-          python scripts/generate-download-checksums.py --arch "${{ inputs.arch }}"
-
-      - name: Show built files
-        run: |
-          find "files/${{ inputs.arch }}" -maxdepth 2 -type f -printf '%p %s bytes\n' | sort
-          find inventories/group_vars -maxdepth 1 -type f -name 'download-checksums-${{ inputs.arch }}.yml' -print -exec cat {} \;
-
-      - name: Publish compiled binaries as workflow artifacts
+          mode: source
+          arch: ${{ inputs.arch }}
+          stage: ${{ inputs.stage }}
+          components: ${{ inputs.components }}
+          restore_cache: ${{ inputs.restore_cache }}
+          strict_package: ${{ inputs.strict_package }}
+      - name: Upload verified build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: k8s-binaries-${{ inputs.arch }}-${{ github.run_number }}
+          name: k8s-source-validation-${{ inputs.arch }}-${{ github.run_number }}
           path: |
             files/${{ inputs.arch }}/
             inventories/group_vars/download-checksums-${{ inputs.arch }}.yml
           retention-days: 14
           if-no-files-found: error
-
-      - name: Prepare binary cache branch
-        if: ${{ inputs.commit_changes == 'true' }}
-        run: |
-          set -euo pipefail
-          TARGET_BRANCH="${{ inputs.target_branch }}"
-          if git ls-remote --exit-code --heads origin "${TARGET_BRANCH}" >/dev/null 2>&1; then
-            git fetch origin "${TARGET_BRANCH}"
-            git checkout -B "${TARGET_BRANCH}" "origin/${TARGET_BRANCH}"
-          else
-            git checkout --orphan "${TARGET_BRANCH}"
-            git rm -rf . || true
-            git checkout "${{ github.sha }}" -- .gitattributes scripts/build-default-binaries.sh scripts/package-built-binaries.sh scripts/generate-download-checksums.py repo/sources.yml || true
-          fi
-
-      - name: Copy built cache into cache branch
-        if: ${{ inputs.commit_changes == 'true' }}
-        run: |
-          set -euo pipefail
-          ARCH="${{ inputs.arch }}"
-          TMP_CACHE="$(mktemp -d)"
-          cp -a "files/${ARCH}" "${TMP_CACHE}/"
-          cp -a "inventories/group_vars/download-checksums-${ARCH}.yml" "${TMP_CACHE}/download-checksums-${ARCH}.yml"
-          mkdir -p files inventories/group_vars
-          rm -rf "files/${ARCH}"
-          cp -a "${TMP_CACHE}/${ARCH}" "files/${ARCH}"
-          cp -a "${TMP_CACHE}/download-checksums-${ARCH}.yml" "inventories/group_vars/download-checksums-${ARCH}.yml"
-          rm -rf "${TMP_CACHE}"
-
-      - name: Commit built binary cache
-        if: ${{ inputs.commit_changes == 'true' }}
-        run: |
-          set -euo pipefail
-          TARGET_BRANCH="${{ inputs.target_branch }}"
-          git add .gitattributes "files/${{ inputs.arch }}" "inventories/group_vars/download-checksums-${{ inputs.arch }}.yml"
-          if git diff --cached --quiet; then
-            echo "No built binary cache changes to commit."
-          else
-            git commit -m "cache: build ${{ inputs.stage }} ${{ inputs.arch }} binaries from source"
-            git lfs push origin HEAD
-            if ! git push origin "HEAD:${TARGET_BRANCH}"; then
-              echo "::error::Failed to push ${TARGET_BRANCH}. Check BINARY_CACHE_TOKEN permissions, repository Git LFS settings, and branch protection rules, or run again with a new target_branch such as binary-cache/${{ inputs.arch }}-build-${{ github.run_number }}."
-              exit 1
-            fi
-          fi

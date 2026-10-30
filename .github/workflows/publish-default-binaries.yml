@@ -1,0 +1,101 @@
+name: Publish default binary cache (approval required)
+
+on:
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: Target architecture
+        type: choice
+        options: [amd64, arm64]
+        default: amd64
+      source_mode:
+        description: Source-tag build or upstream release download
+        type: choice
+        options: [source, release]
+        default: source
+      stage:
+        description: Build stage (source mode)
+        type: choice
+        options: [stage1-light, stage2-core, stage3-runtime, stage4-kubernetes, custom, all]
+        default: stage1-light
+      components:
+        description: Components when stage=custom
+        type: string
+        default: ''
+      confirm_publish:
+        description: Type PUBLISH to authorize cache branch modification
+        type: string
+        default: NO
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Read-only build and verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      contents: read
+    steps:
+      - name: Validate explicit confirmation
+        shell: bash
+        env:
+          CONFIRM_PUBLISH: ${{ inputs.confirm_publish }}
+        run: |
+          test "${CONFIRM_PUBLISH}" = "PUBLISH" || { echo "Type PUBLISH to authorize cache publication" >&2; exit 1; }
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+          persist-credentials: true
+      - uses: ./.github/actions/prepare-binaries
+        with:
+          mode: ${{ inputs.source_mode }}
+          arch: ${{ inputs.arch }}
+          stage: ${{ inputs.stage }}
+          components: ${{ inputs.components }}
+          restore_cache: ${{ inputs.source_mode == 'source' && inputs.stage != 'all' && inputs.stage != 'stage1-light' }}
+          strict_package: ${{ inputs.source_mode == 'release' || inputs.stage == 'all' || inputs.stage == 'stage4-kubernetes' }}
+      - name: Upload checked binaries for the publication job
+        uses: actions/upload-artifact@v4
+        with:
+          name: pending-binary-cache-${{ inputs.arch }}-${{ github.run_number }}
+          path: |
+            files/${{ inputs.arch }}/
+            inventories/group_vars/download-checksums-${{ inputs.arch }}.yml
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Protected cache publication
+    needs: build
+    runs-on: ubuntu-latest
+    environment: binary-cache-publish
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: pending-binary-cache-${{ inputs.arch }}-${{ github.run_number }}
+          path: .
+      - name: Verify downloaded artifacts
+        env:
+          ARCH: ${{ inputs.arch }}
+          STRICT_REQUIRED: ${{ inputs.source_mode == 'release' || inputs.stage == 'all' || inputs.stage == 'stage4-kubernetes' }}
+        run: |
+          if [[ "${STRICT_REQUIRED}" == true ]]; then
+            bash scripts/verify-binary-cache.sh "files/${ARCH}" --strict
+          else
+            bash scripts/verify-binary-cache.sh "files/${ARCH}"
+          fi
+      - name: Publish to architecture cache branch
+        env:
+          ARCH: ${{ inputs.arch }}
+          BINARY_CACHE_TOKEN: ${{ secrets.BINARY_CACHE_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: bash scripts/publish-binary-cache.sh

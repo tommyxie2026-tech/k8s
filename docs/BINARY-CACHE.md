@@ -44,53 +44,21 @@ files/arm64/
 inventories/group_vars/download-checksums-arm64.yml
 ```
 
-## 触发下载并提交到缓存分支
+## 验证与发布的独立入口
 
-在 GitHub Actions 中手动运行：
+此前 `Build default binaries` 和 `Cache default binaries` 内包含自动回写逻辑。A09 变更后：
 
-```text
-Cache default binaries
-```
+| 入口 | 操作 | 权限 |
+| --- | --- | --- |
+| `Build default binaries` | 从源码 Tag 编译、校验、上传 14 天 Artifacts | `contents: read`，无发布 PAT |
+| `Cache default binaries` | 下载上游 Release、校验、上传 14 天 Artifacts | `contents: read`，无发布 PAT |
+| `Publish default binary cache` | 手动确认 + 受保护发布 Job，写入 `binary-cache/<arch>` | 仅发布 Job 可访问专用 PAT |
 
-输入：
+发布前先设置 `binary-cache-publish` GitHub Environment 的必需审查人，使用该环境范围的 `BINARY_CACHE_TOKEN`，并审查缓存分支保护规则。**只创建 Environment 名称并不会自动启用人工审批。**
 
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `arch` | `amd64` | 目标架构，例如 `amd64` 或 `arm64` |
-| `target_branch` | `binary-cache/amd64` | 存放二进制缓存的目标分支 |
-| `commit_changes` | `true` | 是否自动提交下载结果 |
+多阶段源码构建按 Stage 1→2→3→4 顺序发布，后续阶段在只读 Build Job 中使用 `git lfs pull` 恢复前序制品并校验 SHA256SUMS。下载与构建过程共用制品完整性规范，不允许未经授权在验证 Job 中提交缓存。
 
-工作流会执行：
-
-```bash
-bash scripts/download-default-binaries.sh
-```
-
-然后将 `files/<arch>/` 下的文件提交到 `target_branch`。
-
-## 从源码构建并提交到缓存分支
-
-也可以运行：
-
-```text
-Build default binaries
-```
-
-它会读取：
-
-```text
-repo/sources.yml
-```
-
-从源码 tag 编译二进制，并打包为当前部署脚本兼容的 release-like 归档包。
-
-源码构建完成后会自动生成：
-
-```text
-inventories/group_vars/download-checksums-<arch>.yml
-```
-
-该文件会被 `0001-download-binaries.yml` 自动加载，用于 `get_url checksum` 强校验。
+更多内容见 [A09-BUILD-PUBLISH.md](A09-BUILD-PUBLISH.md)。
 
 ## 从缓存分支同步到部署工作区
 
@@ -104,8 +72,8 @@ ARCH=amd64 CACHE_BRANCH=binary-cache/amd64 bash scripts/sync-binary-cache-branch
 该脚本会：
 
 1. fetch `binary-cache/<arch>` 分支。
-2. 从分支中导出 `files/<arch>/`。
-3. 同步到当前工作区的 `files/<arch>/`。
+2. 在临时 Git worktree 中执行 `git lfs pull`，恢复真实二进制文件而非 LFS 指针。
+3. 校验临时缓存的 SHA256SUMS，然后同步到当前工作区的 `files/<arch>/`。
 4. 如果存在 `SHA256SUMS`，自动执行 `sha256sum -c SHA256SUMS`。
 
 如果缓存分支包含 `inventories/group_vars/download-checksums-<arch>.yml`，也建议同步该文件到当前工作区，以便在线下载或离线校验时启用强校验。
@@ -193,7 +161,7 @@ python scripts/generate-download-checksums.py --arch amd64
 
 ```bash
 ARCH=amd64 \
-KUBERNETES_VERSION=1.36.1 \
+KUBERNETES_VERSION=1.36.5 \
 ETCD_VERSION=3.6.11 \
 CONTAINERD_VERSION=2.3.0 \
 bash scripts/download-default-binaries.sh

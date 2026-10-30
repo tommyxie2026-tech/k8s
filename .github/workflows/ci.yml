@@ -9,6 +9,22 @@ on:
       - master
 
 jobs:
+  workflow-lint:
+    name: GitHub Actions workflow static validation
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+      - name: Install pinned actionlint and check all workflows
+        run: |
+          set -euo pipefail
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          "$(go env GOPATH)/bin/actionlint" -color
+
   script-syntax:
     name: Script syntax checks
     runs-on: ubuntu-latest
@@ -63,6 +79,12 @@ jobs:
 
       - name: Check source and deploy versions
         run: python scripts/check-version-consistency.py
+
+      - name: Validate pinned Go toolchain against upstream component requirements
+        run: python scripts/check-go-toolchain.py
+
+      - name: Test binary delivery integrity and permission boundaries
+        run: python scripts/test-binary-delivery.py
 
   ansible-syntax-container:
     name: Ansible syntax checks - container inventory
