@@ -9,12 +9,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from fastapi import HTTPException
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
-
 from app.db.base import Base
 from app.db.repositories import TaskRepository
 from app.runtime.executor import (
@@ -26,6 +21,10 @@ from app.runtime.executor import (
 from app.runtime.service import RuntimeService, TaskSubmission
 from app.runtime.worker import LocalTaskWorker
 from app.services.workflow_safety import WorkflowConfirmationError
+from fastapi import HTTPException
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 
 class RecordingExecutor:
