@@ -95,7 +95,9 @@ def test_cancelled_queued_task_is_not_executed_by_worker(session_factory) -> Non
         assert TaskRepository(session).require(task_id).phase == "cancelled"
 
 
-def test_second_worker_does_not_claim_completed_task(session_factory, tmp_path, monkeypatch) -> None:
+def test_second_worker_does_not_claim_completed_task(
+    session_factory, tmp_path, monkeypatch
+) -> None:
     """Sequential claim safety only: this is not a multi-worker race test."""
     from app.core.config import settings
 
@@ -231,7 +233,7 @@ def test_frozen_workflow_lifecycle_and_task_query_routes_are_mounted() -> None:
     actual = {
         (route.path, method)
         for route in app.routes
-        for method in (route.methods or ())
+        for method in (getattr(route, "methods", None) or ())
     }
     frozen = {
         ("/api/v1/workflows", "POST"),
