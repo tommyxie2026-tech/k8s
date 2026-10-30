@@ -21,6 +21,7 @@ ALLOWED_EXISTING_VIOLATIONS = {
     "nodepools.py",
     "observability.py",
     "storagepools.py",
+    "vm.py",  # existing unmounted legacy module; do not add new direct imports
 }
 
 
