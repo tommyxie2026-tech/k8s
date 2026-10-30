@@ -17,6 +17,10 @@ LEGACY_EXECUTOR_ROUTERS = {
     "nodepools.py",
     "observability.py",
     "storagepools.py",
+    "cluster.py",  # pre-existing unmounted legacy router
+    "nodepool.py",  # pre-existing unmounted legacy router
+    "restore.py",  # pre-existing unmounted legacy router
+    "storagepool.py",  # pre-existing unmounted legacy router
     "vm.py",  # existing unmounted legacy module; migrate or delete only after review
 }
 
