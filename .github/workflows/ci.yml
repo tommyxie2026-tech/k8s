@@ -155,7 +155,7 @@ jobs:
         run: python -m pip install -r requirements-dev.txt
 
       - name: Lint M3-0 regression tests
-        run: python -m ruff check --diff tests/test_m3_0_contract_baseline.py
+        run: python -m ruff check tests/test_m3_0_contract_baseline.py
 
       - name: Verify M3-0 and existing runtime/architecture contracts
         run: |
