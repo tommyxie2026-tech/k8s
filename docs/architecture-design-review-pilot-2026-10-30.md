@@ -106,3 +106,12 @@
 6. 明确各项责任人和剩余风险；先基于现有冻结 API 与适配器边界判断差异，再单独决定是否需要扩展接口或资源适配层。
 
 **试点判定**：Skill 适合用作设计评审与变更治理门禁；其价值是统一**审查问题与证据形式**，不是在此仓库立即实现统一控制器。未获批准的候选设计保留为候选，不自动成为开发任务。
+
+## 8. 合并后复核（2026-10-30）
+
+此节记录试点审查基线之后发生的变更，不追溯修改上文 E01–E11 所指的历史证据状态。
+
+- 本报告 PR #2 创建后，GitHub 自动触发 [CI Run #521](https://github.com/tommyxie2026-tech/k8s/actions/runs/41046839218)，单节点与容器模式的 Ansible 语法检查在原有 `roles/capacity_planning/tasks/main.yml:102` 的 YAML heredoc 缩进处失败；**PR #2 当时仅改变本 Markdown 文档，并未引入该错误**。
+- 此错误由独立的 [PR #3](https://github.com/tommyxie2026-tech/k8s/pull/3) 仅调整 YAML block 缩进予以修复；对应 [CI Run #522](https://github.com/tommyxie2026-tech/k8s/actions/runs/41065803308) 的单节点 Ansible、容器 Ansible、版本、清单和 Shell 五项检查全部成功。PR #3 已合并至 `master`，合并提交为 `fe37db0f9c7a0a4c87dfba148396ad51612822aa`。
+- 本报告的业务审查建议未随之获得实施授权。A09 [PR #1](https://github.com/tommyxie2026-tech/k8s/pull/1) 仍单独待审，受保护发布配置、真实部署、备份恢复及离线验收均未因上述 CI 通过而自动验证。
+- 本次文档修订用于在**更新后的 master 基线**再次验证 PR #2；不得把自动触发的 PR 检查理解为人工部署或二进制发布。
