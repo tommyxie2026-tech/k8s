@@ -9,7 +9,7 @@ if [[ "${MODE}" == "--strict" ]]; then
   MATRIX="inventories/group_vars/all.yml"
   test -f "${MATRIX}" || { echo "Missing version matrix: ${MATRIX}" >&2; exit 1; }
   read_version() {
-    sed -nE 's/^'"${1}"': *"([^"]+)".*/\\1/p' "${MATRIX}" | head -n1
+    sed -nE 's/^'"${1}"': *"([^"]+)".*/\1/p' "${MATRIX}" | head -n1
   }
   etcd_version="$(read_version etcd_version)"
   k8s_version="$(read_version kubernetes_version)"
