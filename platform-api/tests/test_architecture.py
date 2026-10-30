@@ -17,6 +17,7 @@ LEGACY_EXECUTOR_ROUTERS = {
     "nodepools.py",
     "observability.py",
     "storagepools.py",
+    "vm.py",  # existing unmounted legacy module; migrate or delete only after review
 }
 
 FORBIDDEN_EXECUTOR_MODULES = {
