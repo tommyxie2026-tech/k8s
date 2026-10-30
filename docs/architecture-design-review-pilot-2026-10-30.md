@@ -113,5 +113,5 @@
 
 - 本报告 PR #2 创建后，GitHub 自动触发 [CI Run #521](https://github.com/tommyxie2026-tech/k8s/actions/runs/41046839218)，单节点与容器模式的 Ansible 语法检查在原有 `roles/capacity_planning/tasks/main.yml:102` 的 YAML heredoc 缩进处失败；**PR #2 当时仅改变本 Markdown 文档，并未引入该错误**。
 - 此错误由独立的 [PR #3](https://github.com/tommyxie2026-tech/k8s/pull/3) 仅调整 YAML block 缩进予以修复；对应 [CI Run #522](https://github.com/tommyxie2026-tech/k8s/actions/runs/41065803308) 的单节点 Ansible、容器 Ansible、版本、清单和 Shell 五项检查全部成功。PR #3 已合并至 `master`，合并提交为 `fe37db0f9c7a0a4c87dfba148396ad51612822aa`。
-- 本报告的业务审查建议未随之获得实施授权。A09 [PR #1](https://github.com/tommyxie2026-tech/k8s/pull/1) 仍单独待审，受保护发布配置、真实部署、备份恢复及离线验收均未因上述 CI 通过而自动验证。
+- **并行变更**：复核期间，A09 [PR #1](https://github.com/tommyxie2026-tech/k8s/pull/1) 已由独立操作合并至 `master`（合并提交 `eca7435ca211a29a44f5c82a7beb98e83629bf1c`）。现行 `build-default-binaries.yml` 和 `cache-default-binaries.yml` 已改为只读校验。上文 E03/E04、构建/发布章节和 R03 所述为**最初审查时的历史基线/候选建议**，不得再将 A09 称为未合并。实际 GitHub Environment 审批、密钥隔离、缓存保护、LFS 发布、真实部署、备份恢复及离线验收仍需提供独立证据；**代码合并不等于这些运行时配置和验收已完成**。
 - 本次文档修订用于在**更新后的 master 基线**再次验证 PR #2；不得把自动触发的 PR 检查理解为人工部署或二进制发布。
