@@ -4,7 +4,7 @@
 
 [![运行 Kubernetes v1.36.5 CI 编译测试](https://img.shields.io/badge/%E2%96%B6%20%E6%89%8B%E5%8A%A8%E8%A7%A6%E5%8F%91-Kubernetes%20v1.36.5%20CI-2ea44f?style=for-the-badge)](https://github.com/tommyxie2026-tech/k8s/actions/workflows/build-default-binaries.yml)
 
-点击上方按钮进入 GitHub Actions，选择 **Run workflow**。建议设置：`Branch=master`、`arch=amd64`、`stage=stage4-kubernetes`、`commit_changes=false`、`strict_package=true`。该入口仅打开 GitHub 官方触发页面，不会绕过 GitHub 登录或权限确认；运行完成后在对应 Run 的 Artifacts 下载二进制产物。
+点击上方按钮进入 GitHub Actions，选择 **Run workflow**。纯验证推荐 `arch=amd64`、`stage=stage1-light`；完整制品验证选择 `stage=all`、`strict_package=true`。分阶段校验可显式启用 `restore_cache=true`，该开关只读取已发布缓存。该入口仅打开 GitHub 官方触发页面，不会绕过 GitHub 登录或权限确认；运行完成后在对应 Run 的 Artifacts 下载二进制产物；验证任务没有发布权限。要写入缓存分支，须使用独立的 **Publish default binary cache** 工作流及发布环境审批。详见 `docs/A09-BUILD-PUBLISH.md`。
 
 基于 Ansible 的 Kubernetes 高可用集群二进制部署方案，支持 HA 物理机/虚拟机、单节点物理机，以及用于开发、CI、演示的 Docker 容器模式。
 

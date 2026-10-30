@@ -1,110 +1,39 @@
-name: Cache default binaries
+name: Cache default binaries (read-only validation)
 
 on:
   workflow_dispatch:
     inputs:
       arch:
-        description: "Target architecture, e.g. amd64 or arm64"
-        required: true
+        description: Target architecture
+        type: choice
+        options: [amd64, arm64]
         default: amd64
-      target_branch:
-        description: "Branch to store binary cache"
-        required: true
-        default: binary-cache/amd64
-      commit_changes:
-        description: "Commit downloaded files back to repository"
-        required: true
-        default: 'true'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  cache-default-binaries:
-    name: Download and commit default binaries
-    if: github.event_name == 'workflow_dispatch'
+  validate:
+    name: Download and verify upstream binaries without repository writes
     runs-on: ubuntu-latest
-    env:
-      BINARY_CACHE_TOKEN: ${{ secrets.BINARY_CACHE_TOKEN }}
+    timeout-minutes: 120
+    permissions:
+      contents: read
     steps:
-      - name: Checkout source branch
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-          lfs: true
-          token: ${{ secrets.BINARY_CACHE_TOKEN || github.token }}
-
-      - name: Validate binary cache push token
-        if: ${{ inputs.commit_changes == 'true' }}
-        run: |
-          set -euo pipefail
-          if [[ -z "${BINARY_CACHE_TOKEN}" ]]; then
-            echo "::error::commit_changes=true requires repository secret BINARY_CACHE_TOKEN. This token must be a PAT with repository Contents write access and Git LFS upload permission. GitHub's default github-actions[bot] token may fail to upload new LFS objects."
-            exit 1
-          fi
-
-      - name: Configure Git LFS
-        run: |
-          git lfs install --local
-          git lfs track "files/**/*"
-
-      - name: Configure Git identity and authenticated remote
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if [[ -n "${BINARY_CACHE_TOKEN}" ]]; then
-            git remote set-url origin "https://x-access-token:${BINARY_CACHE_TOKEN}@github.com/${{ github.repository }}.git"
-          fi
-
-      - name: Download default binaries from source branch
-        env:
-          ARCH: ${{ inputs.arch }}
-        run: bash scripts/download-default-binaries.sh
-
-      - name: Show cached files
-        run: |
-          find "files/${{ inputs.arch }}" -maxdepth 1 -type f -printf '%p %s bytes\n' | sort
-
-      - name: Prepare binary cache branch
-        if: ${{ inputs.commit_changes == 'true' }}
-        run: |
-          set -euo pipefail
-          TARGET_BRANCH="${{ inputs.target_branch }}"
-          if git ls-remote --exit-code --heads origin "${TARGET_BRANCH}" >/dev/null 2>&1; then
-            git fetch origin "${TARGET_BRANCH}"
-            git checkout -B "${TARGET_BRANCH}" "origin/${TARGET_BRANCH}"
-          else
-            git checkout --orphan "${TARGET_BRANCH}"
-            git rm -rf . || true
-            git checkout "${{ github.sha }}" -- .gitattributes scripts/download-default-binaries.sh || true
-          fi
-
-      - name: Copy downloaded cache into cache branch
-        if: ${{ inputs.commit_changes == 'true' }}
-        run: |
-          set -euo pipefail
-          ARCH="${{ inputs.arch }}"
-          TMP_CACHE="$(mktemp -d)"
-          cp -a "files/${ARCH}" "${TMP_CACHE}/"
-          mkdir -p files
-          rm -rf "files/${ARCH}"
-          cp -a "${TMP_CACHE}/${ARCH}" "files/${ARCH}"
-          rm -rf "${TMP_CACHE}"
-
-      - name: Commit binary cache
-        if: ${{ inputs.commit_changes == 'true' }}
-        run: |
-          set -euo pipefail
-          TARGET_BRANCH="${{ inputs.target_branch }}"
-          git add .gitattributes "files/${{ inputs.arch }}"
-          if git diff --cached --quiet; then
-            echo "No binary cache changes to commit."
-          else
-            git commit -m "cache: update default ${{ inputs.arch }} binaries"
-            git lfs push origin HEAD
-            if ! git push origin "HEAD:${TARGET_BRANCH}"; then
-              echo "::error::Failed to push ${TARGET_BRANCH}. Check BINARY_CACHE_TOKEN permissions, repository Git LFS settings, and branch protection rules, or run again with a new target_branch such as binary-cache/${{ inputs.arch }}-${{ github.run_number }}."
-              exit 1
-            fi
-          fi
+          lfs: false
+          persist-credentials: false
+      - uses: ./.github/actions/prepare-binaries
+        with:
+          mode: release
+          arch: ${{ inputs.arch }}
+      - name: Upload verified download artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: k8s-release-validation-${{ inputs.arch }}-${{ github.run_number }}
+          path: |
+            files/${{ inputs.arch }}/
+            inventories/group_vars/download-checksums-${{ inputs.arch }}.yml
+          retention-days: 14
+          if-no-files-found: error

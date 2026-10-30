@@ -64,6 +64,9 @@ jobs:
       - name: Check source and deploy versions
         run: python scripts/check-version-consistency.py
 
+      - name: Test binary delivery integrity and permission boundaries
+        run: python scripts/test-binary-delivery.py
+
   ansible-syntax-container:
     name: Ansible syntax checks - container inventory
     runs-on: ubuntu-latest

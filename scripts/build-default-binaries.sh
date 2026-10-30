@@ -149,7 +149,7 @@ if [[ "${PACKAGE_DEPLOY_ARCHIVES}" == "true" ]]; then
   echo "==> package deploy-compatible archives"
   ARCH="${ARCH}" FILES_DIR="${FILES_DIR}" bash scripts/package-built-binaries.sh
 else
-  find "${FILES_DIR}" -type f -maxdepth 2 -print0 | sort -z | xargs -0 sha256sum > "${FILES_DIR}/SHA256SUMS"
+  bash scripts/write-sha256sums.sh "${FILES_DIR}"
 fi
 
 echo "==> build outputs are ready in ${FILES_DIR}"

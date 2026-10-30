@@ -4,7 +4,7 @@ set -euo pipefail
 ARCH="${ARCH:-amd64}"
 FILES_DIR="${FILES_DIR:-files/${ARCH}}"
 PKG_WORK_DIR="${PKG_WORK_DIR:-.build/package/${ARCH}}"
-KUBERNETES_VERSION="${KUBERNETES_VERSION:-1.36.1}"
+KUBERNETES_VERSION="${KUBERNETES_VERSION:-1.36.5}"
 ETCD_VERSION="${ETCD_VERSION:-3.6.11}"
 CONTAINERD_VERSION="${CONTAINERD_VERSION:-2.3.0}"
 CNI_PLUGINS_VERSION="${CNI_PLUGINS_VERSION:-1.9.1}"
@@ -133,12 +133,21 @@ package_etcd
 package_containerd
 package_cni_plugins
 
+if [[ "${STRICT_PACKAGE}" == "true" ]]; then
+  required_extra=(cfssl cfssljson kubectl runc containerd.service calico.yaml
+    "kubernetes-server-linux-${ARCH}.tar.gz"
+    "kubernetes-node-linux-${ARCH}.tar.gz"
+    "etcd-v${ETCD_VERSION}-linux-${ARCH}.tar.gz"
+    "containerd-${CONTAINERD_VERSION}-linux-${ARCH}.tar.gz"
+    "cni-plugins-linux-${ARCH}-v${CNI_PLUGINS_VERSION}.tgz")
+  record_missing "${required_extra[@]}"
+fi
 if [[ "${STRICT_PACKAGE}" == "true" && "${#missing_files[@]}" -gt 0 ]]; then
   printf 'strict packaging failed; missing files:\n' >&2
   printf -- '- %s\n' "${missing_files[@]}" >&2
   exit 1
 fi
 
-find "${FILES_DIR}" -type f -maxdepth 2 -print0 | sort -z | xargs -0 sha256sum > "${FILES_DIR}/SHA256SUMS"
+bash scripts/write-sha256sums.sh "${FILES_DIR}"
 
 echo "==> packaged deploy-compatible archives in ${FILES_DIR}"

@@ -1,0 +1,95 @@
+name: Prepare and verify Kubernetes binaries
+description: Shared read-only build logic; never receives publish credentials
+inputs:
+  mode:
+    required: true
+    description: source or release
+  arch:
+    required: true
+    description: amd64 or arm64
+  stage:
+    required: false
+    default: stage1-light
+    description: source stage
+  components:
+    required: false
+    default: ''
+  restore_cache:
+    required: false
+    default: 'false'
+  strict_package:
+    required: false
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - name: Install build prerequisites
+      shell: bash
+      run: |
+        set -euo pipefail
+        python3 -m pip install --user pyyaml
+        sudo apt-get update
+        sudo apt-get install -y build-essential rsync curl jq pkg-config libseccomp-dev git-lfs
+    - name: Validate source manifests and version alignment
+      shell: bash
+      run: |
+        python3 scripts/validate-source-manifest.py
+        python3 scripts/check-version-consistency.py
+    - name: Resolve build stage
+      id: resolve
+      shell: bash
+      env:
+        STAGE: ${{ inputs.stage }}
+        CUSTOM: ${{ inputs.components }}
+      run: |
+        set -euo pipefail
+        case "${STAGE}" in
+          stage1-light) components=cfssl,runc ;;
+          stage2-core) components=cni-plugins,etcd,calico ;;
+          stage3-runtime) components=containerd ;;
+          stage4-kubernetes) components=kubernetes ;;
+          all) components=all ;;
+          custom) test -n "${CUSTOM}" || { echo "Missing custom component list" >&2; exit 1; }; components="${CUSTOM}" ;;
+          *) echo "Unknown stage: ${STAGE}" >&2; exit 1 ;;
+        esac
+        echo "components=${components}" >> "${GITHUB_OUTPUT}"
+    - name: Restore previously published cache (read-only)
+      if: ${{ inputs.mode == 'source' && inputs.restore_cache == 'true' }}
+      shell: bash
+      env:
+        ARCH: ${{ inputs.arch }}
+      run: bash scripts/restore-binary-cache-branch.sh
+    - name: Set up Go
+      if: ${{ inputs.mode == 'source' }}
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24.x'
+        cache: false
+    - name: Build from pinned source tags
+      if: ${{ inputs.mode == 'source' }}
+      shell: bash
+      env:
+        ARCH: ${{ inputs.arch }}
+        BUILD_COMPONENTS: ${{ steps.resolve.outputs.components }}
+        STRICT_PACKAGE: ${{ inputs.strict_package }}
+      run: bash scripts/build-default-binaries.sh
+    - name: Download upstream release artifacts
+      if: ${{ inputs.mode == 'release' }}
+      shell: bash
+      env:
+        ARCH: ${{ inputs.arch }}
+      run: bash scripts/download-default-binaries.sh
+    - name: Validate binary cache and generate Ansible checksums
+      shell: bash
+      env:
+        ARCH: ${{ inputs.arch }}
+        STRICT_PACKAGE: ${{ inputs.strict_package }}
+        MODE: ${{ inputs.mode }}
+      run: |
+        set -euo pipefail
+        if [[ "${MODE}" == release || "${STRICT_PACKAGE}" == true ]]; then
+          bash scripts/verify-binary-cache.sh "files/${ARCH}" --strict
+        else
+          bash scripts/verify-binary-cache.sh "files/${ARCH}"
+        fi
+        python3 scripts/generate-download-checksums.py --arch "${ARCH}"

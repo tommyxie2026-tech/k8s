@@ -111,3 +111,8 @@ manifests:
     version: "3.32.0"
     source: "https://raw.githubusercontent.com/projectcalico/calico/v3.32.0/manifests/calico.yaml"
     dest: "calico.yaml"
+
+  - component: containerd
+    version: "2.3.0"
+    source: "https://raw.githubusercontent.com/containerd/containerd/v2.3.0/containerd.service"
+    dest: "containerd.service"
