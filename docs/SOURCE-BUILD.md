@@ -7,7 +7,7 @@
 - 每个默认二进制都有明确源码仓库和 tag 来源。
 - 可以将源码仓库替换为内部 GitLab mirror。
 - CI 可从源码构建 `files/<arch>/`。
-- 产物仍通过 `binary-cache/<arch>` 分支和 Git LFS 管理。
+- 正式发布的产物由经过批准的工作流进入 `binary-cache/<arch>` 分支与 Git LFS；普通构建仅产生短期 Actions Artifacts。
 - release 下载与源码构建并存：前者快，后者可审计、可复现。
 
 ## 目录结构
@@ -24,6 +24,8 @@ scripts/
 
 .github/workflows/
   build-default-binaries.yml
+  cache-default-binaries.yml
+  publish-default-binaries.yml
 ```
 
 ## Source Manifest
@@ -38,9 +40,9 @@ repo/sources.yml
 
 ```yaml
 component: kubernetes
-version: "1.36.1"
+version: "1.36.5"
 git: "https://github.com/kubernetes/kubernetes.git"
-tag: "v1.36.1"
+tag: "v1.36.5"
 build:
   type: make
   command: "make ..."
@@ -57,122 +59,19 @@ outputs:
 git: "https://gitlab.example.com/mirror/kubernetes/kubernetes.git"
 ```
 
-## CI 工作流
+## CI 工作流：验证与发布隔离（A09）
 
-手动运行：
+从本次改造起，`Build default binaries` 不再承担 Git LFS 回写，所有验证 Job 使用 `contents: read`，不能访问发布凭据。
 
-```text
-Build default binaries
-```
+- **只读源码构建验证**：手动运行 `.github/workflows/build-default-binaries.yml`，选择 `arch`、`stage`（`stage1-light`、`stage2-core`、`stage3-runtime`、`stage4-kubernetes`、`custom`、`all`）、`components`、`restore_cache` 与 `strict_package`。成功后从 Actions Artifacts 下载暂存制品。
+- **只读缓存验证**：手动运行 `.github/workflows/cache-default-binaries.yml`，从上游 Release 下载并校验制品，仅上传 Actions Artifacts。
+- **受控缓存发布**：手动运行 `.github/workflows/publish-default-binaries.yml`，根据 `source_mode` 选择源码或上游 Release，输入 `PUBLISH` 后由专用 `binary-cache-publish` 环境执行发布 Job。必须先由仓库管理员配置环境必需审批人与环境专属 `BINARY_CACHE_TOKEN`。
+- 所有构建逻辑统一于 `.github/actions/prepare-binaries/action.yml`，工作流之间不复制构建步骤。
+- **读与写分离**：`restore_cache` 只控制读取旧缓存，写入仅存在于独立发布 Job；前序分阶段构建结果通过 `binary-cache/<arch>` 被复用。
 
-参数：
+分阶段执行顺序保持不变：`stage1-light` → `stage2-core` → `stage3-runtime` → `stage4-kubernetes`。对应每阶段依次独立授权和发布；Stage 2–4 从**已发布且通过校验**的缓存恢复前阶段产物，Stage 4 启用严格完整性验证。仅在干净工作区构建 Stage 4 并设置 `strict_package=true` 将因依赖归档缺失而失败，这是预期行为。`stage=all` 则可用于一次性完整构建验证。
 
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `arch` | `amd64` | 目标架构，例如 `amd64` 或 `arm64` |
-| `stage` | `stage1-light` | 分阶段构建入口 |
-| `components` | 空 | `stage=custom` 时传入组件列表 |
-| `target_branch` | `binary-cache/amd64` | 编译产物提交分支 |
-| `commit_changes` | `true` | 是否提交产物 |
-| `strict_package` | `false` | 是否要求完整部署归档全部存在 |
-
-## 分阶段 CI 构建顺序
-
-为了通过 CI 逐步完成构建，建议按下面顺序手动运行同一个 workflow。所有阶段使用同一个 `target_branch`，workflow 会先从目标缓存分支恢复已有 `files/<arch>/`，再增量构建当前阶段的组件，最后重新生成 `SHA256SUMS` 和 `download-checksums-<arch>.yml`。
-
-### 阶段一：轻量组件
-
-```text
-arch=amd64
-stage=stage1-light
-target_branch=binary-cache/amd64
-commit_changes=true
-strict_package=false
-```
-
-该阶段构建：
-
-```text
-cfssl,runc
-```
-
-目标：验证 CI、Git LFS、源码 tag checkout、构建脚本和缓存分支提交链路。
-
-### 阶段二：CNI 与 etcd
-
-```text
-arch=amd64
-stage=stage2-core
-target_branch=binary-cache/amd64
-commit_changes=true
-strict_package=false
-```
-
-该阶段构建：
-
-```text
-cni-plugins,etcd
-```
-
-目标：补齐 CNI 归档包与 etcd release-like 包。
-
-### 阶段三：containerd
-
-```text
-arch=amd64
-stage=stage3-runtime
-target_branch=binary-cache/amd64
-commit_changes=true
-strict_package=false
-```
-
-该阶段构建：
-
-```text
-containerd
-```
-
-目标：补齐 containerd release-like 包。
-
-### 阶段四：Kubernetes
-
-```text
-arch=amd64
-stage=stage4-kubernetes
-target_branch=binary-cache/amd64
-commit_changes=true
-strict_package=true
-```
-
-该阶段构建：
-
-```text
-kubernetes
-```
-
-此阶段会恢复前面阶段已提交的产物，因此 `strict_package=true` 可以用于校验最终部署所需归档是否完整。
-
-## 自定义阶段
-
-如果需要只构建某几个组件：
-
-```text
-arch=amd64
-stage=custom
-components=cfssl,runc
-target_branch=binary-cache/amd64-test
-commit_changes=true
-strict_package=false
-```
-
-如果需要一次性全部构建：
-
-```text
-stage=all
-strict_package=true
-```
-
-不建议第一次就使用 `stage=all`，尤其是 GitHub hosted runner。
+详细权限边界、配置和回滚参阅 [A09-BUILD-PUBLISH.md](A09-BUILD-PUBLISH.md)。
 
 ## 本地执行
 
