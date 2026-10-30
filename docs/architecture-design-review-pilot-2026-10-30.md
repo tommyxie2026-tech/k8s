@@ -9,9 +9,9 @@
 
 **建议保留统一的资源目录、身份、操作记录和审计入口，但不接受将 Kubernetes 集群、KubeVirt VM、PVC/存储、etcd 恢复和 CI 产物一律映射到通用 `create/update/delete/restart` 生命周期。**共享的是接口框架、操作信封及可观测结构；真实不变量、能力集、权限和故障恢复由对应领域定义。
 
-本仓库当前主要是 Ansible 二进制部署与运维自动化项目，而非已经实现了完整持久化 DDD 控制平面的产品。因此，下述聚合、状态机和端口属于**建议性建模**，不能据此声称系统已有统一资源控制器、数据库服务编排器或自动补偿平台。
+本仓库既包含 Ansible 二进制部署与运维自动化，也已有 CPP V2.0 的**冻结领域模型、API/Workflow 规格和部分持久化 Runtime 代码**。已有规格接受“Everything Is A Resource”的公共 metadata/spec/status 信封；这不等于冻结了所有资源共享一种生命周期。现有 SQLAlchemy 持久化与 RuntimeService 是实现基础，但异步 WorkflowOrchestrator 和遗留执行路径迁移仍有明确缺口。因此，下述新聚合和操作端口建议须与冻结规格对齐，涉及不兼容变更应走新版本/设计评审，不能把候选设计当成现行能力。
 
-同时，**构建/验证和发布应是不同权限域**。当前 `master` 的构建工作流仍含仓库写入权限、发布凭据及回写分支流程；A09 PR 提出了隔离方案，但它尚未合并，所需环境保护也尚未在本次试点中验收。
+同时，**构建/验证和发布应是不同权限域**。当前 `master` 的构建和缓存工作流仍含仓库写入权限、发布凭据及回写分支流程；A09 PR 提出了隔离方案，但它尚未合并，所需环境保护也尚未在本次试点中验收。
 
 ## 2. 证据登记表
 
@@ -21,11 +21,15 @@
 | --- | --- | --- | --- |
 | E01 | CURRENT | 主路径为 Ansible 部署，区分 HA 机器、单节点机器、容器演示模式；容器模式不是生产 HA。 | [README 部署模式及推荐流程](../README.md)；单节点不具备 etcd quorum 容错。 |
 | E02 | CURRENT | `Makefile` 已区分 KubeVirt、节点池、存储、恢复、迁移等命令；若干破坏性操作设有显式确认变量。 | [Makefile](../Makefile)；对操作存在不等价语义的直接证据。 |
-| E03 | CURRENT | `master` 上 `build-default-binaries.yml` 使用 `permissions: contents: write`，构建 job 可见 `BINARY_CACHE_TOKEN`，`commit_changes` 默认 `true`，具备写缓存分支路径。 | [现行工作流](../.github/workflows/build-default-binaries.yml)；这是配置权限暴露面，**不等同于已观察到未授权发布事件**。 |
+| E03 | CURRENT | `master` 上 `build-default-binaries.yml` 与 `cache-default-binaries.yml` 均声明 `contents: write`、向 job 暴露 `BINARY_CACHE_TOKEN`、默认 `commit_changes=true` 并具有缓存分支回写路径。 | [构建工作流](../.github/workflows/build-default-binaries.yml)、[缓存工作流](../.github/workflows/cache-default-binaries.yml)；这是配置权限暴露面，**不等同于已观察到未授权发布事件**。 |
 | E04 | PROPOSED | A09 PR 设计只读 Build/Cache 验证与单独的受保护 Publish；发布需 `PUBLISH` 确认、环境审核、独立凭据。 | [PR #1](https://github.com/tommyxie2026-tech/k8s/pull/1) 及[方案运行手册](https://github.com/tommyxie2026-tech/k8s/blob/fix/a09-build-publish-isolation/docs/A09-BUILD-PUBLISH.md)；**未作为现行能力入账**。 |
 | E05 | CURRENT | 存在按阶段推进的生产化待办；文档中的“已完成/待完成”表述须与源文件、运行结果分别核验。 | [ROADMAP](ROADMAP.md)；文档陈述不等于环境实际通过。 |
 | E06 | CLAIM / UNKNOWN | 此前用户确认“已部署或测试，尚未完成验收”；本次未访问目标集群、权限设置、运行日志或物理故障演练证据。 | 需由环境/交付负责人提供验收证据；不从 `README` 或 CI 状态推导生产就绪。 |
 | E07 | UNKNOWN | A09 的 GitHub Environment 必需审核人、密钥存放边界、缓存分支保护、LFS 实际发布及离线全链路交付是否已按预期配置/执行。 | PR 文档明确要求仓库管理员配置；须通过管理员读数与独立验收确认。 |
+| E08 | CURRENT（设计基线） | CPP V2.0 冻结了通用 Resource 信封、Cluster/Node/StoragePool/StorageClass/VM/Backup/Workflow/Task 等类型以及独立限界上下文。 | [FROZEN-P1 领域模型](frozen/FROZEN-P1-01-DOMAIN-MODEL-v1.0.md)；仅证明设计冻结，不证明全部类型完整落地。 |
+| E09 | CURRENT（设计基线） | 冻结 API 要求操作 API 经 Workflow，禁止 API 直接执行命令，要求破坏性确认与乐观并发；Workflow 规格拆分编排与 Task 执行。 | [FROZEN-P3 API](frozen/FROZEN-P3-API-SPECIFICATION-v1.0.md)、[FROZEN-P4 Workflow](frozen/FROZEN-P4-WORKFLOW-ENGINE-v1.0.md)。 |
+| E10 | CURRENT（代码及核验文档） | `platform-api` 已有持久化 Task/RuntimeService；部分 VM 路由仍直接使用 legacy executor，异步 WorkflowOrchestrator 尚未实现完整收敛。 | [RuntimeService](../platform-api/app/runtime/service.py)、[VM router](../platform-api/app/routers/vm.py)、[实现状态基线](implementation/VERIFIED-IMPLEMENTATION-STATUS-v1.0.md)。 |
+| E11 | CURRENT（设计约束） | 备份恢复架构明确 VM 规格与磁盘数据须共同恢复，且要求先做恢复演练。 | [备份恢复架构](BACKUP-RECOVERY-ARCHITECTURE.md)；操作成功率及 RTO/RPO 仍需实测。 |
 
 ## 3. 限界上下文与权威状态归属
 
@@ -38,6 +42,8 @@
 | Kubernetes 运行时 | 节点、工作负载、Control Plane/etcd 的实际状态 | Kubernetes API、etcd 状态及宿主观测（本次未读取） | 不批准 GitHub 缓存发布 |
 | KubeVirt / 存储 / 备份 | VM、DataVolume、PVC、快照、恢复依赖和数据完整性 | KubeVirt/Kubernetes 对象和备份系统状态（本次未读取） | 不从一条通用重试规则推断可恢复性 |
 | 安全与变更治理 | 责任人、审批、授权时效、破坏性操作确认、验收 | GitHub 环境保护、变更审批和操作审计；负责人待确认 | 不以“workflow green”替代生产验收 |
+
+**与现有冻结规格的关系**：`FROZEN-P1-01` 认可 Resource 共同字段；`FROZEN-P3` 已限定 Action API 经 Workflow；`FROZEN-P4` 把 Workflow 编排、Task 执行及 Executor 命令分开。建议的操作信封是对现有契约的审查视角，不是要求另造 `Operation` 表。当前 `platform-api/app/runtime/service.py` 已实现持久化 submit/execute 分离，而 `platform-api/app/routers/vm.py` 仍有直接 legacy executor 路径；因此应优先验证并收敛**现有** Workflow→Runtime 边界，再评估新增适配层。冻结规格变更应独立版本化与审批。
 
 边界原则：**期望状态、观测状态和执行事实分开保存**。例如部署 Playbook 退出码为零只是一次执行结果，不自动证明节点 Ready、etcd quorum 正常或 VM 数据可恢复。若未来引入统一 API，可用 `ResourceRef(kind, name, namespace, owner)` + `Operation(id, actor, target, command, status, evidence)` 作为跨上下文信封，但实际命令由类型化适配器验证。
 
@@ -79,21 +85,24 @@
 | R05 | REMOVE-CANDIDATE | 不引入“一种 Resource 支持所有 create/update/delete/restart”的通用领域模型 | 平台架构负责人（待指派）；最终项目 owner | 设计评审记录非法操作与类型适配策略；此项非删除已有代码 |
 | R06 | DEFER | 不把自动重试/补偿推广到所有状态变更；先做操作幂等与失败分类 | 运行时/运维负责人（待指派）；最终项目 owner | 有限重试、歧义副作用、手工接管与恢复点的用例过审 |
 | R07 | DEFER | 不宣布生产 HA、完整离线安装及二进制交付已验收 | 测试/交付负责人（待指派）；最终项目 owner | 环境部署、故障演练、离线镜像/系统依赖、LFS 与保护策略均提供证据 |
+| R08 | CHANGE-CANDIDATE | 先完成遗留 VM/Workflow 路由经持久化 Runtime 的边界收敛；禁止新的 Router→Executor 直连，不在本试点实施 | API/Runtime 维护者（待指派）；最终架构 owner | 兼容性契约、Task 状态恢复、取消与重复请求测试通过后才能迁移，避免提前删除旧入口 |
+| R09 | KEEP | 尊重已冻结的 Resource、API、Workflow 契约，若新模型不兼容，先提出版本化设计变更 | 架构委员会/项目 owner（实际流程待确认） | 设计差异清单、版本号、评审记录、兼容策略齐备 |
 
 表内责任人均是**建议角色**，不是已核实的人事分工。需项目 owner 确认实际责任人及决策权限后才可进入实施。
 
 ## 7. 验证门禁与限制
 
-**本轮已执行**：只读核对 `README.md`、`docs/ROADMAP.md`、`Makefile`、`master` 工作流和 A09 PR 提案运行手册；完成现行/提案分离、限界上下文和操作失败边界审查。
+**本轮已执行**：只读核对 `README.md`、`docs/ROADMAP.md`、`Makefile`、`master` 两个二进制工作流、CPP 冻结模型/API/Workflow 规格、部分 Runtime/路由代码及 A09 PR 提案运行手册；完成现行/提案分离、限界上下文和操作失败边界审查。
 
 **本轮未执行**：修改部署/控制器/工作流代码、触发任何 CI、运行 Ansible、访问 live cluster、配置 GitHub Environment、测试 LFS 发布、合并 A09 或其他 PR。因此报告不是部署、安全或 HA 验收证明。
 
 如后续获明确授权，建议验证顺序：
 
-1. 静态测试：资源种类与不支持的命令、前置条件/审批、版本/摘要一致性、权限最小化。
+1. 静态测试：冻结规格与 API/Runtime 实现差异、资源种类与不支持的命令、前置条件/审批、`resource_version` 冲突、版本/摘要一致性、权限最小化；不在已有冻结契约外任意新造 Resource。
 2. PR #1 独立审核：只读 CI 权限、生产 Secret 作用域、受保护环境 required reviewers 与分支规则；代码变更**不等于**设置生效。
 3. 小规模隔离试验：构建-验证失败不能发布、产物摘要在验证和发布之间不被替换、发布失败不破坏旧缓存。
-4. 环境验收：HA 故障域、etcd quorum、KubeVirt/存储恢复点以及完整 air-gap（镜像、依赖、网络配置）逐项记录。
-5. 明确各项责任人和剩余风险，之后单独决定是否需要实现统一 API 或资源适配层。
+4. Runtime 收敛验证：API→Workflow→持久化 Task→Worker→Executor，在重启、孤儿任务、重复提交、并发更新、超时、取消下保持执行事实；在兼容性批准前不删除旧路由。
+5. 环境验收：HA 故障域、etcd quorum、KubeVirt/存储恢复点以及完整 air-gap（镜像、依赖、网络配置）逐项记录。
+6. 明确各项责任人和剩余风险；先基于现有冻结 API 与适配器边界判断差异，再单独决定是否需要扩展接口或资源适配层。
 
 **试点判定**：Skill 适合用作设计评审与变更治理门禁；其价值是统一**审查问题与证据形式**，不是在此仓库立即实现统一控制器。未获批准的候选设计保留为候选，不自动成为开发任务。
