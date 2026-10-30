@@ -39,3 +39,7 @@ Offline *binary* caching is not the same as full air-gapped cluster installation
 - Existing CI failures unrelated to A09 (for example malformed Ansible YAML) remain blocking until explicitly fixed.
 - Current workflows do not sign binaries or attest reproducibility. All artifact metadata must be reviewed before production delivery.
 - First publication and approval require configuring GitHub environment/secret/branch-protection controls; the PR does not and cannot configure these repository settings.
+
+## Go toolchain compatibility
+
+The source manifest now declares `go_minimum` per component from its pinned upstream `go.mod` / `toolchain` requirements. Kubernetes v1.36.5 requires Go 1.26.0; containerd v2.3.0 requires Go 1.26.2; etcd v3.6.11 requests the Go 1.25.9 toolchain. The shared source build action explicitly installs Go 1.26.2 and uses `GOTOOLCHAIN=local`, so toolchain upgrades cannot silently occur during CI. `scripts/check-go-toolchain.py` blocks a mismatch when a source component or build toolchain is updated. Update the manifest requirements after reviewing the pinned upstream releases.

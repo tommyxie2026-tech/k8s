@@ -80,6 +80,9 @@ jobs:
       - name: Check source and deploy versions
         run: python scripts/check-version-consistency.py
 
+      - name: Validate pinned Go toolchain against upstream component requirements
+        run: python scripts/check-go-toolchain.py
+
       - name: Test binary delivery integrity and permission boundaries
         run: python scripts/test-binary-delivery.py
 

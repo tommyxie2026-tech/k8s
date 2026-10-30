@@ -39,6 +39,7 @@ runs:
       run: |
         python3 scripts/validate-source-manifest.py
         python3 scripts/check-version-consistency.py
+        python3 scripts/check-go-toolchain.py
     - name: Resolve build stage
       id: resolve
       shell: bash
@@ -67,13 +68,14 @@ runs:
       if: ${{ inputs.mode == 'source' }}
       uses: actions/setup-go@v5
       with:
-        go-version: '1.24.x'
+        go-version: '1.26.2'
         cache: false
     - name: Build from pinned source tags
       if: ${{ inputs.mode == 'source' }}
       shell: bash
       env:
         ARCH: ${{ inputs.arch }}
+        GOTOOLCHAIN: local
         BUILD_COMPONENTS: ${{ steps.resolve.outputs.components }}
         STRICT_PACKAGE: ${{ inputs.strict_package }}
       run: bash scripts/build-default-binaries.sh

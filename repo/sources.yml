@@ -5,6 +5,7 @@
 
 components:
   - component: kubernetes
+    go_minimum: "1.26.0"
     version: "1.36.5"
     git: "https://github.com/kubernetes/kubernetes.git"
     tag: "v1.36.5"
@@ -28,6 +29,7 @@ components:
         dest: "kubectl"
 
   - component: etcd
+    go_minimum: "1.25.9"
     version: "3.6.11"
     git: "https://github.com/etcd-io/etcd.git"
     tag: "v3.6.11"
@@ -44,6 +46,7 @@ components:
         dest: "etcdctl"
 
   - component: containerd
+    go_minimum: "1.26.2"
     version: "2.3.0"
     git: "https://github.com/containerd/containerd.git"
     tag: "v2.3.0"
@@ -62,6 +65,7 @@ components:
         dest: "ctr"
 
   - component: runc
+    go_minimum: "1.23.0"
     version: "1.3.5"
     git: "https://github.com/opencontainers/runc.git"
     tag: "v1.3.5"
@@ -76,6 +80,7 @@ components:
         dest: "runc"
 
   - component: cni-plugins
+    go_minimum: "1.24.2"
     version: "1.9.1"
     git: "https://github.com/containernetworking/plugins.git"
     tag: "v1.9.1"
@@ -91,6 +96,7 @@ components:
         archive: "cni-plugins-linux-{{ arch }}-v1.9.1.tgz"
 
   - component: cfssl
+    go_minimum: "1.18.0"
     version: "1.6.5"
     git: "https://github.com/cloudflare/cfssl.git"
     tag: "v1.6.5"

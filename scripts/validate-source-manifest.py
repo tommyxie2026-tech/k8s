@@ -50,6 +50,7 @@ REQUIRED_DEPLOY_OUTPUTS = {
 COMPONENT_REQUIRED_FIELDS = {
     "component",
     "version",
+    "go_minimum",
     "git",
     "tag",
     "build",
@@ -88,6 +89,10 @@ def validate_component(item: dict[str, Any], errors: list[str], output_names: se
 
     if not isinstance(item.get("version"), str) or not item.get("version"):
         error(errors, f"component {component}: version must be a non-empty string")
+
+    go_minimum = item.get("go_minimum")
+    if not isinstance(go_minimum, str) or not re.fullmatch(r"\d+\.\d+\.\d+", go_minimum):
+        error(errors, f"component {component}: go_minimum must be a quoted x.y.z version")
 
     tag = item.get("tag")
     if not isinstance(tag, str) or not tag:
