@@ -4,6 +4,18 @@ FILES_DIR="${1:?Usage: verify-binary-cache.sh FILES_DIR [--strict]}"
 MODE="${2:-}"
 ARCH="${ARCH:-${FILES_DIR##*/}}"
 test -f "${FILES_DIR}/SHA256SUMS" || { echo "Missing SHA256SUMS in ${FILES_DIR}" >&2; exit 1; }
+# A checksum alone cannot distinguish correctly restored LFS content from a
+# checksummed Git LFS pointer. Refuse symlinks and unresolved pointer files.
+if [[ -n "$(find "${FILES_DIR}" -type l -print -quit)" ]]; then
+  echo "Cache contains a symlink; refusing untrusted cache paths" >&2
+  exit 1
+fi
+while IFS= read -r -d '' artifact; do
+  if head -c 80 "${artifact}" | grep -aFq 'version https://git-lfs.github.com/spec/v1'; then
+    echo "Unresolved Git LFS pointer: ${artifact}" >&2
+    exit 1
+  fi
+done < <(find "${FILES_DIR}" -type f ! -name SHA256SUMS -print0)
 (cd "${FILES_DIR}" && sha256sum -c SHA256SUMS)
 if [[ "${MODE}" == "--strict" ]]; then
   MATRIX="inventories/group_vars/all.yml"

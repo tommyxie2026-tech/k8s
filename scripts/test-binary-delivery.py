@@ -76,6 +76,26 @@ class DeliveryTests(unittest.TestCase):
                 run_bash("verify-binary-cache.sh", str(folder)).returncode, 0
             )
 
+    def test_unresolved_lfs_pointer_and_symlink_fail_even_with_matching_checksum(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / "files" / ARCH
+            folder.mkdir(parents=True)
+            item = folder / "kubectl"
+            item.write_text(
+                "version https://git-lfs.github.com/spec/v1\\n"
+                "oid sha256:" + ("f" * 64) + "\\nsize 123\\n"
+            )
+            self.assertEqual(run_bash("write-sha256sums.sh", str(folder)).returncode, 0)
+            result = run_bash("verify-binary-cache.sh", str(folder))
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Unresolved Git LFS pointer", result.stderr)
+
+            item.unlink()
+            item.symlink_to(folder / "missing-target")
+            result = run_bash("verify-binary-cache.sh", str(folder))
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("symlink", result.stderr)
+
     def test_strict_packaging_detects_only_missing_cni(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp) / "files" / ARCH
