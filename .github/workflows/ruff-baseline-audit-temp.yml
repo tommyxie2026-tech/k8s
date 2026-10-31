@@ -4,6 +4,9 @@ on:
   pull_request:
     branches:
       - master
+  push:
+    branches:
+      - chore/platform-api-ruff-baseline-20261031
 
 permissions:
   contents: read
