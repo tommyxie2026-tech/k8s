@@ -3,7 +3,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db.base import Base
-from app.db.models import AuditEventModel, ResourceEventModel, TaskModel, WorkflowStepModel
+from app.db.models import AuditEventModel, ResourceEventModel, WorkflowStepModel
 from app.db.repositories import TaskRepository, WorkflowRepository
 from app.services.workflow_cancellation import WorkflowCancellationService
 
