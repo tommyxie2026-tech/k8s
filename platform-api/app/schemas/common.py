@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any
 from pydantic import BaseModel, Field
 
 
@@ -22,13 +22,13 @@ class TaskInfo(BaseModel):
     status: TaskStatus
     playbook: str
     command: list[str]
-    return_code: Optional[int] = None
-    extra_vars: Dict[str, Any] = Field(default_factory=dict)
+    return_code: int | None = None
+    extra_vars: dict[str, Any] = Field(default_factory=dict)
 
 
 class ConfirmRequest(BaseModel):
     confirm: bool = False
-    confirm_phrase: Optional[str] = None
+    confirm_phrase: str | None = None
 
 
 class MessageResponse(BaseModel):
