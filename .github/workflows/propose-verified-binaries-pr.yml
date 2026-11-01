@@ -4,6 +4,7 @@ on:
   workflow_run:
     workflows:
       - Build default binaries (read-only validation)
+      - Build ARM64 full binaries (read-only validation)
     types:
       - completed
 
