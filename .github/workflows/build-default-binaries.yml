@@ -1,6 +1,11 @@
 name: Build default binaries (read-only validation)
 
 on:
+  # Exactly one authorized build request; binary artifact merges do not retrigger.
+  push:
+    branches: [master]
+    paths:
+      - ci/full-build-request/amd64-20261102.yml
   pull_request:
     paths:
       - .github/workflows/build-default-binaries.yml
@@ -59,12 +64,12 @@ jobs:
         with:
           mode: source
           arch: ${{ inputs.arch || 'amd64' }}
-          stage: ${{ inputs.stage || 'stage1-light' }}
+          stage: ${{ github.event_name == 'push' && 'all' || inputs.stage || 'stage1-light' }}
           components: ${{ inputs.components || '' }}
           restore_cache: ${{ inputs.restore_cache || false }}
-          strict_package: ${{ inputs.strict_package || false }}
+          strict_package: ${{ github.event_name == 'push' || inputs.strict_package || false }}
       - name: Create promotion marker only for complete strict source builds
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.stage == 'all' && inputs.strict_package == true && inputs.restore_cache == false }}
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.stage == 'all' && inputs.strict_package == true && inputs.restore_cache == false) }}
         shell: bash
         env:
           ARCH: ${{ inputs.arch }}
@@ -101,7 +106,7 @@ jobs:
           PY
 
       - name: Upload full-build promotion marker
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.stage == 'all' && inputs.strict_package == true && inputs.restore_cache == false }}
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.stage == 'all' && inputs.strict_package == true && inputs.restore_cache == false) }}
         uses: actions/upload-artifact@v4
         with:
           name: binary-promotion-candidate-${{ github.run_number }}-${{ github.run_attempt }}

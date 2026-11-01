@@ -48,7 +48,7 @@ if [[ "${base_sha}" != "${master_sha}" ||
 fi
 jq -e --arg repository "${GITHUB_REPOSITORY}" \
   '.name == "Build default binaries (read-only validation)" and
-   .event == "workflow_dispatch" and .head_branch == "master" and
+   (.event == "workflow_dispatch" or .event == "push") and .head_branch == "master" and
    .head_repository.full_name == $repository and .conclusion == "success" and
    .status == "completed"' <<< "${source}" >/dev/null || {
   echo "Original full build is not trustworthy" >&2

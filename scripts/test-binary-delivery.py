@@ -93,6 +93,33 @@ class DeliveryTests(unittest.TestCase):
         ]
         self.assertEqual(toolchains, ["1.26.10"])
 
+    def test_exact_master_push_build_request_requires_full_strict_mode(self):
+        build = yaml.safe_load(
+            (ROOT / ".github/workflows/build-default-binaries.yml").read_text(
+                encoding="utf-8"
+            )
+        )
+        events = build.get("on", build.get(True))
+        self.assertEqual(events["push"]["branches"], ["master"])
+        self.assertEqual(
+            events["push"]["paths"],
+            ["ci/full-build-request/amd64-20261102.yml"],
+        )
+        prepare = next(
+            x
+            for x in build["jobs"]["validate"]["steps"]
+            if x.get("uses") == "./.github/actions/prepare-binaries"
+        )
+        self.assertIn("github.event_name == 'push' && 'all'", prepare["with"]["stage"])
+        self.assertIn("github.event_name == 'push'", prepare["with"]["strict_package"])
+        self.assertEqual(prepare["with"]["restore_cache"], "${{ inputs.restore_cache || false }}")
+        marker_step = next(
+            x
+            for x in build["jobs"]["validate"]["steps"]
+            if x.get("name", "").startswith("Create promotion marker")
+        )
+        self.assertIn("github.event_name == 'push'", marker_step["if"])
+
     def test_native_arm64_build_and_read_only_lfs_verification(self):
         for workflow_file, job in (
             ("build-default-binaries.yml", "validate"),

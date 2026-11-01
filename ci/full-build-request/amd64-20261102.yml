@@ -1,0 +1,10 @@
+# One-shot full source compilation request authorized for master on 2026-11-02.
+# This is a build request marker, not a binary artifact or deployment config.
+request_id: "amd64-full-source-20261102"
+architecture: amd64
+stage: all
+strict_package: true
+restore_cache: false
+source_ref: master
+delivery: files/amd64
+policy: verified-git-lfs-pull-request

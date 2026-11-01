@@ -39,6 +39,29 @@ This is independent of the legacy `binary-cache/<arch>` publisher and
 requires its own constrained `binary-artifact-pr` environment token.
 PR-stage smoke builds and incomplete source stages do not carry the marker.
 
+## One-shot AMD64 full source compile request (2026-11-02)
+
+An explicitly reviewed merge adding
+`ci/full-build-request/amd64-20261102.yml` to `master` triggers a single
+**master push** build using the existing read-only
+`Build default binaries (read-only validation)` workflow, with fixed
+`arch=amd64`, `stage=all`, `restore_cache=false`, and
+`strict_package=true`. No other source/code or binary-PR changes trigger
+this full-build request; the normal PR default remains a lightweight smoke.
+
+The successful strict build writes the same run/attempt/source-SHA marker as
+a manual full build. The independent promotion workflow accepts this
+`master` push only after checking its marker, artifacts, source revision,
+checksums and architecture. The protected PR writer and auto-merge checks
+are unchanged. Missing `ARTIFACT_PR_TOKEN` or `binary-artifact-pr`
+Environment approval prevents PR creation rather than bypassing protection.
+
+This is a one-time request by workflow path convention; modifying that same
+path in a later approved commit may intentionally request another full
+build. The GitHub-hosted runner has resource/disk/time limits; a successful
+stage1 run does not guarantee a complete build. ARM64 remains a separately
+validated source build and is **not** implied by this AMD64 request.
+
 ## Artifact integrity and offline scope
 
 `scripts/write-sha256sums.sh` writes checksums for **relative paths**, excluding itself; `sha256sum -c SHA256SUMS` is verified inside `files/<arch>`. In strict mode `scripts/verify-binary-cache.sh` checks all required binary deployment files, including Calico and containerd.service. SHA256 provides integrity checking, not cryptographic proof of upstream origin. Operators must separately verify release provenance and licenses.
