@@ -104,7 +104,7 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.stage == 'all' && inputs.strict_package == true && inputs.restore_cache == false }}
         uses: actions/upload-artifact@v4
         with:
-          name: binary-promotion-candidate-${{ github.run_number }}
+          name: binary-promotion-candidate-${{ github.run_number }}-${{ github.run_attempt }}
           path: metadata/binary-promotion.json
           retention-days: 14
           if-no-files-found: error
@@ -112,7 +112,7 @@ jobs:
       - name: Upload verified build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: k8s-source-validation-${{ inputs.arch || 'amd64' }}-${{ github.run_number }}
+          name: k8s-source-validation-${{ inputs.arch || 'amd64' }}-${{ github.run_number }}-${{ github.run_attempt }}
           path: |
             files/${{ inputs.arch || 'amd64' }}/
             inventories/group_vars/download-checksums-${{ inputs.arch || 'amd64' }}.yml
