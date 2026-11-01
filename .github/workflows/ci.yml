@@ -86,7 +86,10 @@ jobs:
       - name: Test binary delivery integrity and permission boundaries
         run: python scripts/test-binary-delivery.py
 
-      - name: Test strict, architecture-scoped artifact PR promotion gates
+      - name: Test source-tag build pipeline with offline Git fixture
+        run: python scripts/test-source-build-pipeline.py
+
+      - name: Test strict, architecture-scoped binary PR promotion gates
         run: python scripts/test-binary-promotion.py
 
   ansible-syntax-container:
