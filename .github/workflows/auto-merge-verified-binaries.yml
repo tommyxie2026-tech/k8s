@@ -34,7 +34,17 @@ jobs:
           EVENT_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
-          number="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${EVENT_RUN_ID}/pulls" --jq '.[0].number // empty')"
+          # GitHub associates PRs with a commit SHA, not /actions/runs/<id>/pulls.
+          # Accept exactly one open generated binary PR for this checked SHA.
+          related="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${EVENT_HEAD_SHA}/pulls?per_page=100")"
+          number="$(
+            jq -r --arg sha "${EVENT_HEAD_SHA}" '
+              [.[] | select(.state == "open" and .head.sha == $sha and
+                (.head.ref | test("^artifact-pr/(amd64|arm64)/run-[1-9][0-9]*-attempt-[1-9][0-9]*$"))) |
+                .number] |
+              if length == 1 then .[0] else empty end
+            ' <<< "${related}"
+          )"
           if [[ -z "${number}" ]]; then
             echo "No PR associated with completed check; skipping"
             echo "eligible=false" >> "${GITHUB_OUTPUT}"
