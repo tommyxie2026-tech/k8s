@@ -25,10 +25,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BRANCH: ${{ github.head_ref }}
         shell: bash
         run: |
           set -euo pipefail
-          branch="${{ github.head_ref }}"
+          branch="${PR_BRANCH}"
           [[ "${branch}" =~ ^artifact-pr/(amd64|arm64)/run-[1-9][0-9]*-attempt-[1-9][0-9]*$ ]] || exit 1
           arch="${BASH_REMATCH[1]}"
           files="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100" --jq '.[].filename')"
