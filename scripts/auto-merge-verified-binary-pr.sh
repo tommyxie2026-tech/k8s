@@ -47,7 +47,8 @@ if [[ "${base_sha}" != "${master_sha}" ||
   exit 1
 fi
 jq -e --arg repository "${GITHUB_REPOSITORY}" \
-  '.name == "Build default binaries (read-only validation)" and
+  '(.name == "Build default binaries (read-only validation)" or
+    .name == "Build ARM64 full binaries (read-only validation)") and
    (.event == "workflow_dispatch" or .event == "push") and .head_branch == "master" and
    .head_repository.full_name == $repository and .conclusion == "success" and
    .status == "completed"' <<< "${source}" >/dev/null || {
