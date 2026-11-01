@@ -27,8 +27,11 @@ automatically merge anything.
 5. After validation, the scoped writer stages only `files/<arch>/` and
    `inventories/group_vars/download-checksums-<arch>.yml` in a new branch
    `artifact-pr/<arch>/run-<id>-attempt-<n>` using **Git LFS**. It pushes LFS
-   objects, pushes the branch, and opens a review PR to `master`. It never
-   auto-merges, deploys or pushes to `binary-cache/<arch>`.
+   objects, pushes the branch, and opens a review PR to `master`. The separate gated workflow may subsequently **auto-merge** the candidate
+   only after both the ordinary CI and binary-integrity check pass for the
+   same commit, the source SHA still matches `master`, and GitHub's own
+   branch protection permits the merge. It never deploys or pushes to
+   `binary-cache/<arch>`.
 
 ## Architecture separation
 
@@ -51,9 +54,10 @@ PAT scoped to this repo, with Contents read/write, Pull requests read/write,
 and sufficient Git LFS access. Build and inspect steps keep the read-only
 GitHub token and never receive this write credential.
 
-Protect `master` with required reviews and appropriate checks. Environment
-approval before *opening* a PR is optional; **review before merge is
-mandatory**. Missing credentials must fail closed. Do not fall back to a
+Protect `master` with required checks. Required human reviews, if configured,
+still apply: the automatic merge never uses admin bypass and will remain
+blocked until GitHub permits the merge. Environment approval before *opening*
+a PR is optional. Missing credentials must fail closed. Do not fall back to a
 repository-wide token or grant write access to the compilation job.
 
 A new `workflow_run` workflow is recognized only after it exists on the
@@ -68,8 +72,15 @@ after a build, rerun the full source build on its latest commit.
   `scripts/test-binary-delivery.py` in base CI.
 - Verify actual **source compilation** using the real build job log and
   uploaded checksummed files—not offline fixture tests alone.
-- Inspect the generated PR's paths, Git LFS pointers, file sizes, source SHA,
-  SHA256SUMS, checksum YAML, LFS quota, and mandatory CI before merging.
+- The generated candidate PR runs **Verify binary artifact PR** in addition
+  to the existing **CI**. Only after both workflows succeed for the exact
+  candidate HEAD does the independent **Auto-merge validated binary artifact
+  PR** workflow recheck the original build, current `master`, changed paths
+  and check outcomes before calling a SHA-guarded squash merge. It does not
+  bypass review rules, and disabled Actions or missing credentials leave the
+  candidate PR open.
+- Inspect the resulting PR and merged commit's paths, Git LFS pointers,
+  file sizes, source SHA, SHA256SUMS, checksum YAML, LFS quota and check logs.
 - LFS pointers are not standalone executables; downstream consumers need
   actual LFS objects or verified download artifacts.
 - SHA256 is an integrity check, not a signature or reproducibility proof.
@@ -80,6 +91,6 @@ after a build, rerun the full source build on its latest commit.
 ## Verification status
 
 At this proposal stage, source build PR #8 has no observed completed Actions
-build. The promotion workflow is not merged into `master`, so no automatic
-binary candidate PR can be claimed yet. Confirm each stage using the build
+build. The promotion and automatic merge workflows have not been merged into
+`master`, so no candidate PR or auto-merge can be claimed yet. Confirm each stage using the build
 run, promotion run, generated PR, and eventual reviewed merge.
