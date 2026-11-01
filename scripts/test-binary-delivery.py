@@ -93,6 +93,28 @@ class DeliveryTests(unittest.TestCase):
         ]
         self.assertEqual(toolchains, ["1.26.10"])
 
+    def test_native_arm64_build_and_read_only_lfs_verification(self):
+        for workflow_file, job in (
+            ("build-default-binaries.yml", "validate"),
+            ("publish-default-binaries.yml", "build"),
+        ):
+            path = ROOT / ".github/workflows" / workflow_file
+            flow = yaml.safe_load(path.read_text(encoding="utf-8"))
+            runs_on = flow["jobs"][job]["runs-on"]
+            self.assertIn("inputs.arch == 'arm64'", runs_on)
+            self.assertIn("ubuntu-24.04-arm", runs_on)
+            self.assertIn("ubuntu-24.04", runs_on)
+            self.assertEqual(flow["jobs"][job]["permissions"]["contents"], "read")
+
+        verification = (
+            ROOT / "scripts/verify-binary-artifact-pr.sh"
+        ).read_text(encoding="utf-8")
+        self.assertLess(
+            verification.index("gh auth setup-git"),
+            verification.index("git lfs pull origin"),
+        )
+        self.assertIn("git lfs pull origin", verification)
+
     def test_checksum_file_excludes_itself_and_is_relative(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp) / "files" / ARCH
