@@ -36,6 +36,7 @@ class PromotionWorkflowSafetyTests(unittest.TestCase):
         for clause in (
             "workflow_run.conclusion == 'success'",
             "workflow_run.event == 'workflow_dispatch'",
+            "workflow_run.event == 'push'",
             "workflow_run.head_branch == 'master'",
             "workflow_run.head_repository.full_name == github.repository",
         ):
@@ -82,6 +83,7 @@ class PromotionWorkflowSafetyTests(unittest.TestCase):
         script = (root / "scripts/auto-merge-verified-binary-pr.sh").read_text(
             encoding="utf-8"
         )
+        self.assertIn('.event == "push"', script)
         for required in (
             "ci.yml",
             "verify-binary-artifact-pr.yml",
