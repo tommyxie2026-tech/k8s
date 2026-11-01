@@ -20,6 +20,44 @@ verify = CHECK["verify"]
 SHA = "a" * 40
 
 
+class PromotionWorkflowSafetyTests(unittest.TestCase):
+    def test_promotion_workflow_is_read_only_until_scoped_pr_step(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        workflow = yaml.safe_load(
+            (root / ".github/workflows/propose-verified-binaries-pr.yml").read_text(
+                encoding="utf-8"
+            )
+        )
+        events = workflow.get("on", workflow.get(True))
+        self.assertEqual(events["workflow_run"]["types"], ["completed"])
+        self.assertEqual(workflow["permissions"], {"contents": "read", "actions": "read"})
+        inspect = workflow["jobs"]["inspect"]
+        requirements = inspect["if"]
+        for clause in (
+            "workflow_run.conclusion == 'success'",
+            "workflow_run.event == 'workflow_dispatch'",
+            "workflow_run.head_branch == 'master'",
+            "workflow_run.head_repository.full_name == github.repository",
+        ):
+            self.assertIn(clause, requirements)
+        self.assertNotIn("environment", inspect)
+        propose = workflow["jobs"]["propose"]
+        self.assertEqual(propose["environment"], "binary-artifact-pr")
+        checkout = next(
+            step
+            for step in propose["steps"]
+            if step.get("uses", "").startswith("actions/checkout@")
+        )
+        self.assertIs(checkout["with"]["persist-credentials"], False)
+        scoped = [
+            step
+            for step in propose["steps"]
+            if "ARTIFACT_PR_TOKEN" in str(step.get("env", {}))
+        ]
+        self.assertEqual(len(scoped), 1)
+        self.assertIn("propose-binary-artifact-pr.sh", scoped[0]["run"])
+
+
 class PromotionValidationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
