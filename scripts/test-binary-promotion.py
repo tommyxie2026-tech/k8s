@@ -58,6 +58,41 @@ class PromotionWorkflowSafetyTests(unittest.TestCase):
         self.assertIn("propose-binary-artifact-pr.sh", scoped[0]["run"])
 
 
+    def test_auto_merge_only_after_binary_integrity_and_ci(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        flow = yaml.safe_load(
+            (root / ".github/workflows/auto-merge-verified-binaries.yml").read_text(
+                encoding="utf-8"
+            )
+        )
+        events = flow.get("on", flow.get(True))
+        self.assertEqual(
+            set(events["workflow_run"]["workflows"]),
+            {"CI", "Verify binary artifact PR"},
+        )
+        self.assertEqual(flow["permissions"]["contents"], "read")
+        self.assertEqual(flow["jobs"]["merge"]["environment"], "binary-artifact-pr")
+        merge_step = flow["jobs"]["merge"]["steps"][-1]
+        self.assertIn("ARTIFACT_PR_TOKEN", str(merge_step["env"]))
+        self.assertNotIn("pull_request_target", str(events))
+
+        script = (root / "scripts/auto-merge-verified-binary-pr.sh").read_text(
+            encoding="utf-8"
+        )
+        for required in (
+            "ci.yml",
+            "verify-binary-artifact-pr.yml",
+            "source_sha",
+            "master_sha",
+            "EXPECTED_HEAD_SHA",
+            "--match-head-commit",
+            "--squash",
+        ):
+            self.assertIn(required, script)
+        self.assertNotIn("--admin", script)
+        self.assertNotIn("--auto", script)
+
+
 class PromotionValidationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
