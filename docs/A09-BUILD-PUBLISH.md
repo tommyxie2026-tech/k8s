@@ -8,6 +8,12 @@
 - **Repository administrator must configure required reviewers and appropriate branch protection on the `binary-cache-publish` environment before any publication.** An environment name alone does not enforce approval. Protect `BINARY_CACHE_TOKEN` as an environment secret, not a repository-wide secret, if possible. Until reviewers and secret scope are verified, do not run the publisher.
 - The publisher does not have broad `GITHUB_TOKEN` write permission; the publication step uses the separately authorized PAT and no other job receives it.
 
+## PR source-build smoke gate
+
+A pull request changing the read-only source build workflow, composite action, pinned source manifest, build/packaging script, or binary verification scripts starts a **read-only amd64/stage1-light smoke build**. This exercises actual pinned upstream source builds for `cfssl` and `runc` and uploads temporary, checksummed GitHub Actions artifacts. It never publishes to `binary-cache/<arch>`, does not receive `BINARY_CACHE_TOKEN`, and checks out the repository with `persist-credentials=false`. A PR smoke pass does **not** prove a complete Kubernetes build or deployment.
+
+The existing `workflow_dispatch` interface is unchanged: explicitly run `stage=all` and `strict_package=true` for complete source build verification (and test both `amd64` and `arm64` separately). The full source build is substantially more resource-intensive and should be validated independently before publication. The `scripts/test-source-build-pipeline.py` offline fixture exercises source-tag checkout, component filtering, packaging and checksum generation, but does not pretend to compile real Kubernetes binaries.
+
 ## Usage
 
 1. **Read-only smoke build**: Run `Build default binaries` with `stage=stage1-light`, `strict_package=false`. The job does not publish/cache anything remotely.
@@ -17,6 +23,21 @@
 5. **Publish cache**: Explicitly run `Publish default binary cache`, select `source_mode`, `arch`, `stage`, type `PUBLISH`, complete required environment review, then inspect the published branch and checksum proof. For staged source builds, publish stage1, stage2, stage3, stage4 in that order. For `source_mode=release`, `stage` is ignored. The branch name is locked to the chosen architecture.
 
 For stages 2–4, the publisher restores `binary-cache/<arch>` in the **read-only build job**, then publishes verified combined outputs in the separate protected job. Stage4 and `all` use strict artifact checking. A fresh stage4 build with no preceding cache is expected to fail; run `all` or publish earlier stages first.
+
+## Verified binaries as reviewable files/<arch> PRs
+
+For a successful manual `stage=all`, `strict_package=true`,
+`restore_cache=false` source build on `master`, the read-only build emits
+a run/attempt/source-SHA promotion marker alongside its checked artifacts.
+The separate [artifact PR promotion design](A09-BINARY-ARTIFACT-PR.md) from
+[PR #9](https://github.com/tommyxie2026-tech/k8s/pull/9), **once merged
+to master and configured**, can then verify and open a Git LFS PR updating
+only `files/<arch>` and that architecture's checksum YAML. The build job
+itself never writes to Git or creates a PR, and no generated PR auto-merges.
+
+This is independent of the legacy `binary-cache/<arch>` publisher and
+requires its own constrained `binary-artifact-pr` environment token.
+PR-stage smoke builds and incomplete source stages do not carry the marker.
 
 ## Artifact integrity and offline scope
 
@@ -42,4 +63,4 @@ Offline *binary* caching is not the same as full air-gapped cluster installation
 
 ## Go toolchain compatibility
 
-The source manifest now declares `go_minimum` per component from its pinned upstream `go.mod` / `toolchain` requirements. Kubernetes v1.36.5 requires Go 1.26.0; containerd v2.3.0 requires Go 1.26.2; etcd v3.6.11 requests the Go 1.25.9 toolchain. The shared source build action explicitly installs Go 1.26.2 and uses `GOTOOLCHAIN=local`, so toolchain upgrades cannot silently occur during CI. `scripts/check-go-toolchain.py` blocks a mismatch when a source component or build toolchain is updated. Update the manifest requirements after reviewing the pinned upstream releases.
+The source manifest now declares `go_minimum` per component from its pinned upstream `go.mod` / `toolchain` requirements. Kubernetes v1.36.5 requires Go 1.26.0; containerd v2.3.0 requires Go 1.26.2; etcd v3.6.11 requests the Go 1.25.9 toolchain. The shared source build action explicitly installs Go 1.26.10 (the security-patched release in the pinned Go 1.26 series) and uses `GOTOOLCHAIN=local`, so toolchain upgrades cannot silently occur during CI. `scripts/check-go-toolchain.py` blocks a mismatch when a source component or build toolchain is updated. Update the manifest requirements after reviewing the pinned upstream releases.

@@ -40,6 +40,20 @@ runs:
         python3 scripts/validate-source-manifest.py
         python3 scripts/check-version-consistency.py
         python3 scripts/check-go-toolchain.py
+    - name: Clear stale output files before a fresh source or release build
+      if: ${{ inputs.mode == 'release' || (inputs.mode == 'source' && inputs.restore_cache != 'true') }}
+      shell: bash
+      env:
+        ARCH: ${{ inputs.arch }}
+      run: |
+        set -euo pipefail
+        case "${ARCH}" in
+          amd64|arm64) ;;
+          *) echo "Unsupported architecture" >&2; exit 1 ;;
+        esac
+        mkdir -p "files/${ARCH}"
+        find "files/${ARCH}" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+
     - name: Resolve build stage
       id: resolve
       shell: bash
@@ -68,7 +82,7 @@ runs:
       if: ${{ inputs.mode == 'source' }}
       uses: actions/setup-go@v5
       with:
-        go-version: '1.26.2'
+        go-version: '1.26.10'
         cache: false
     - name: Build from pinned source tags
       if: ${{ inputs.mode == 'source' }}
