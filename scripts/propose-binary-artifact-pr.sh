@@ -97,7 +97,7 @@ cat > "${body}" <<EOF
 - \`files/${ARCH}/\` (Git LFS binaries and SHA256SUMS)
 - \`inventories/group_vars/download-checksums-${ARCH}.yml\`
 
-**Review required.** This PR does not deploy a cluster, publish to the binary-cache branch, or auto-merge. Review build logs, versions, provenance and Git LFS quota before merging.
+**Automated merge gate**: this PR is eligible for squash merge only after the standard CI and binary-integrity verification succeed for this exact commit, the source SHA still equals current master, and GitHub branch protections permit it. No deployment or binary-cache publication is performed. Check build logs, versions, provenance and Git LFS quota.
 EOF
 
 gh pr create \
