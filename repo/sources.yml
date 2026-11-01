@@ -35,7 +35,8 @@ components:
     tag: "v3.6.11"
     build:
       type: shell
-      command: "./build.sh"
+      # etcd v3.6.11: Makefile -> scripts/build.sh (root ./build.sh does not exist).
+      command: "make build"
       env:
         GOOS: linux
         GOARCH: "{{ arch }}"

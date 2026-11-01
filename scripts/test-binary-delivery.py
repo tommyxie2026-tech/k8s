@@ -93,6 +93,34 @@ class DeliveryTests(unittest.TestCase):
         ]
         self.assertEqual(toolchains, ["1.26.10"])
 
+    def test_etcd_pinned_make_build_contract_and_staged_real_smokes(self):
+        source = yaml.safe_load((ROOT / "repo/sources.yml").read_text(encoding="utf-8"))
+        etcd = next(c for c in source["components"] if c["component"] == "etcd")
+        self.assertEqual(etcd["tag"], "v3.6.11")
+        self.assertEqual(etcd["build"]["command"], "make build")
+        self.assertEqual(
+            {o["src"] for o in etcd["outputs"]},
+            {"bin/etcd", "bin/etcdctl"},
+        )
+        build = yaml.safe_load(
+            (ROOT / ".github/workflows/build-default-binaries.yml").read_text(
+                encoding="utf-8"
+            )
+        )
+        staged = build["jobs"]["core-stage-smoke"]
+        self.assertEqual(
+            set(staged["strategy"]["matrix"]["stage"]),
+            {"stage2-core", "stage3-runtime"},
+        )
+        self.assertEqual(staged["permissions"]["contents"], "read")
+        self.assertIn("pull_request", staged["if"])
+        prepare = next(
+            step for step in staged["steps"]
+            if step.get("uses") == "./.github/actions/prepare-binaries"
+        )
+        self.assertEqual(prepare["with"]["arch"], "amd64")
+        self.assertEqual(prepare["with"]["strict_package"], "false")
+
     def test_exact_master_push_build_request_requires_full_strict_mode(self):
         build = yaml.safe_load(
             (ROOT / ".github/workflows/build-default-binaries.yml").read_text(
