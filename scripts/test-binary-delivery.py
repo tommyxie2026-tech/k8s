@@ -147,6 +147,7 @@ class DeliveryTests(unittest.TestCase):
             if x.get("name", "").startswith("Create promotion marker")
         )
         self.assertIn("github.event_name == 'push'", marker_step["if"])
+        self.assertEqual(marker_step["env"]["ARCH"], "${{ inputs.arch || 'amd64' }}")
 
     def test_native_arm64_build_and_read_only_lfs_verification(self):
         for workflow_file, job in (
