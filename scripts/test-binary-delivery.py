@@ -60,6 +60,34 @@ class DeliveryTests(unittest.TestCase):
         composite = (ROOT / ".github/actions/prepare-binaries/action.yml").read_text()
         self.assertNotIn("BINARY_CACHE_TOKEN", composite)
 
+    def test_read_only_source_smoke_has_pr_defaults_and_no_checkout_credentials(self):
+        flow = yaml.safe_load(
+            (ROOT / ".github/workflows/build-default-binaries.yml").read_text()
+        )
+        events = flow.get("on", flow.get(True))  # PyYAML YAML 1.1 parses 'on' as True.
+        self.assertIn("pull_request", events)
+        self.assertIn("workflow_dispatch", events)
+        self.assertEqual(flow["permissions"]["contents"], "read")
+        steps = flow["jobs"]["validate"]["steps"]
+        checkout = next(x for x in steps if x.get("uses", "").startswith("actions/checkout@"))
+        self.assertIs(checkout["with"]["persist-credentials"], False)
+        prepare = next(
+            x for x in steps if x.get("uses") == "./.github/actions/prepare-binaries"
+        )
+        self.assertEqual(prepare["with"]["mode"], "source")
+        self.assertIn("amd64", prepare["with"]["arch"])
+        self.assertIn("stage1-light", prepare["with"]["stage"])
+        self.assertNotIn("BINARY_CACHE_TOKEN", str(flow))
+        composite = yaml.safe_load(
+            (ROOT / ".github/actions/prepare-binaries/action.yml").read_text()
+        )
+        toolchains = [
+            step.get("with", {}).get("go-version")
+            for step in composite["runs"]["steps"]
+            if step.get("uses", "").startswith("actions/setup-go@")
+        ]
+        self.assertEqual(toolchains, ["1.26.10"])
+
     def test_checksum_file_excludes_itself_and_is_relative(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp) / "files" / ARCH
