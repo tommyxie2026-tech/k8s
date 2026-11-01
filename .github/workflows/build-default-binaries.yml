@@ -72,7 +72,7 @@ jobs:
         if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.stage == 'all' && inputs.strict_package == true && inputs.restore_cache == false) }}
         shell: bash
         env:
-          ARCH: ${{ inputs.arch }}
+          ARCH: ${{ inputs.arch || 'amd64' }}
           SOURCE_SHA: ${{ github.sha }}
           BUILD_RUN_ID: ${{ github.run_id }}
           BUILD_RUN_ATTEMPT: ${{ github.run_attempt }}

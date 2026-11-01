@@ -8,6 +8,6 @@ restore_cache: false
 source_ref: master
 delivery: files/amd64
 policy: verified-git-lfs-pull-request
-retry: 2
-previous_failed_run: 41326994978
-reason: "Fix etcd v3.6.11 build command and verify core components before full build"
+retry: 3
+previous_failed_run: 41361278259
+reason: "Fix absent inputs.arch on master push when creating full-build promotion marker"
