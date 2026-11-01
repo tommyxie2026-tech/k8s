@@ -78,6 +78,11 @@ class DeliveryTests(unittest.TestCase):
         self.assertIn("amd64", prepare["with"]["arch"])
         self.assertIn("stage1-light", prepare["with"]["stage"])
         self.assertNotIn("BINARY_CACHE_TOKEN", str(flow))
+        self.assertIn("Create promotion marker only for complete strict source builds", str(flow))
+        self.assertIn("binary-promotion-candidate-", str(flow))
+        self.assertIn("strict_package == true", str(flow))
+        self.assertIn("stage == 'all'", str(flow))
+        self.assertIn("binary-promotion.json", str(flow))
         composite = yaml.safe_load(
             (ROOT / ".github/actions/prepare-binaries/action.yml").read_text()
         )
