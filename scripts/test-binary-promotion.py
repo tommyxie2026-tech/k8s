@@ -72,6 +72,9 @@ class PromotionWorkflowSafetyTests(unittest.TestCase):
         )
         self.assertEqual(flow["permissions"]["contents"], "read")
         self.assertEqual(flow["jobs"]["merge"]["environment"], "binary-artifact-pr")
+        inspection = flow["jobs"]["inspect"]["steps"][0]["run"]
+        self.assertIn("commits/${EVENT_HEAD_SHA}/pulls", inspection)
+        self.assertNotIn("actions/runs/${EVENT_RUN_ID}/pulls", inspection)
         merge_step = flow["jobs"]["merge"]["steps"][-1]
         self.assertIn("ARTIFACT_PR_TOKEN", str(merge_step["env"]))
         self.assertNotIn("pull_request_target", str(events))
@@ -89,8 +92,12 @@ class PromotionWorkflowSafetyTests(unittest.TestCase):
             "--squash",
         ):
             self.assertIn(required, script)
-        self.assertNotIn("--admin", script)
-        self.assertNotIn("--auto", script)
+        commands = "\n".join(
+            line for line in script.splitlines()
+            if not line.lstrip().startswith("#")
+        )
+        self.assertNotIn("--admin", commands)
+        self.assertNotIn("--auto", commands)
 
 
 class PromotionValidationTests(unittest.TestCase):

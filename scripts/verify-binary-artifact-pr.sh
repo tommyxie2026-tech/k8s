@@ -69,6 +69,9 @@ python3 scripts/validate-binary-promotion.py \
 
 # Now materialize the submitted LFS objects. No executor or deployment runs.
 git lfs install --local
+# Checkout deliberately does not persist credentials. Give Git LFS a
+# read-only GitHub CLI credential helper; never give this job PR-write tokens.
+gh auth setup-git
 git lfs pull origin --include="files/${arch}/**" --exclude=""
 test "$(git check-attr filter -- "files/${arch}/SHA256SUMS" | awk '{print $3}')" = lfs || {
   echo "Missing binary Git LFS tracking" >&2; exit 1;
