@@ -1,0 +1,152 @@
+name: Propose verified architecture binaries PR
+
+on:
+  workflow_run:
+    workflows:
+      - Build default binaries (read-only validation)
+    types:
+      - completed
+
+# Build jobs remain read-only. The only write credential lives in the
+# binary-artifact-pr environment and is used solely after full verification.
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  inspect:
+    name: Require trusted successful full-source build
+    if: >-
+      ${{ github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'workflow_dispatch' &&
+      github.event.workflow_run.head_branch == 'master' &&
+      github.event.workflow_run.head_repository.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      eligible: ${{ steps.marker.outputs.eligible }}
+      arch: ${{ steps.marker.outputs.arch }}
+    steps:
+      - name: Inspect attempt-specific full-build marker
+        id: marker
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RUN_ID: ${{ github.event.workflow_run.id }}
+          BUILD_RUN_NUMBER: ${{ github.event.workflow_run.run_number }}
+          BUILD_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          BUILD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          marker_name="binary-promotion-candidate-${BUILD_RUN_NUMBER}-${BUILD_RUN_ATTEMPT}"
+          artifacts="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${BUILD_RUN_ID}/artifacts?per_page=100")"
+          matches="$(
+            printf '%s' "${artifacts}" |
+              jq --arg name "${marker_name}" \
+                '[.artifacts[] | select(.name == $name and .expired == false)] | length'
+          )"
+          if [[ "${matches}" == 0 ]]; then
+            echo "Not a complete strict source build; no artifact PR is needed"
+            echo "eligible=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          test "${matches}" == 1 || { echo "Ambiguous promotion marker artifacts" >&2; exit 1; }
+          gh run download "${BUILD_RUN_ID}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --name "${marker_name}" \
+            --dir .promotion-marker
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path(".promotion-marker")
+          files = list(root.rglob("binary-promotion.json"))
+          if len(files) != 1:
+              raise SystemExit("Expected exactly one promotion marker")
+          marker = json.loads(files[0].read_text(encoding="utf-8"))
+          expected = {
+              "schema_version": 1,
+              "source_mode": "source",
+              "stage": "all",
+              "strict_package": True,
+              "arch": marker.get("arch"),
+              "source_sha": os.environ["BUILD_SHA"],
+              "run_id": int(os.environ["BUILD_RUN_ID"]),
+              "run_attempt": int(os.environ["BUILD_RUN_ATTEMPT"]),
+          }
+          if marker != expected or marker.get("arch") not in {"amd64", "arm64"}:
+              raise SystemExit("Build marker is not a trusted full strict build")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as result:
+              result.write("eligible=true\n")
+              result.write(f"arch={marker['arch']}\n")
+          PY
+
+  propose:
+    name: Verify Git LFS artifacts and open review PR
+    needs: inspect
+    if: ${{ needs.inspect.outputs.eligible == 'true' }}
+    runs-on: ubuntu-latest
+    environment: binary-artifact-pr
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout current trusted master without persisted credentials
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          lfs: false
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Download only the selected complete build artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARCH: ${{ needs.inspect.outputs.arch }}
+          BUILD_RUN_ID: ${{ github.event.workflow_run.id }}
+          BUILD_RUN_NUMBER: ${{ github.event.workflow_run.run_number }}
+          BUILD_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${SOURCE_SHA}" || {
+            echo "master advanced since the binary build; require a fresh full build" >&2
+            exit 1
+          }
+          artifact_name="k8s-source-validation-${ARCH}-${BUILD_RUN_NUMBER}-${BUILD_RUN_ATTEMPT}"
+          gh run download "${BUILD_RUN_ID}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --name "${artifact_name}" \
+            --dir .binary-promotion
+
+      - name: Verify artifact identity, integrity and complete deploy package
+        shell: bash
+        env:
+          ARCH: ${{ needs.inspect.outputs.arch }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+          BUILD_RUN_ID: ${{ github.event.workflow_run.id }}
+          BUILD_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: |
+          set -euo pipefail
+          python3 -m pip install pyyaml
+          python3 scripts/validate-binary-promotion.py \
+            --root .binary-promotion \
+            --arch "${ARCH}" \
+            --run-id "${BUILD_RUN_ID}" \
+            --run-attempt "${BUILD_RUN_ATTEMPT}" \
+            --source-sha "${SOURCE_SHA}"
+          bash scripts/verify-binary-cache.sh ".binary-promotion/files/${ARCH}" --strict
+
+      - name: Propose architecture-scoped Git LFS PR (never auto-merge)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.ARTIFACT_PR_TOKEN }}
+          ARCH: ${{ needs.inspect.outputs.arch }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+          BUILD_RUN_ID: ${{ github.event.workflow_run.id }}
+          BUILD_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: bash scripts/propose-binary-artifact-pr.sh
