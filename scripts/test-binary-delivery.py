@@ -121,6 +121,33 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(prepare["with"]["arch"], "amd64")
         self.assertEqual(prepare["with"]["strict_package"], "false")
 
+    def test_arm64_dedicated_native_build_is_narrow_and_read_only(self):
+        source = ROOT / ".github/workflows/build-arm64-full-binaries.yml"
+        workflow = yaml.safe_load(source.read_text(encoding="utf-8"))
+        events = workflow.get("on", workflow.get(True))
+        self.assertEqual(events["push"]["branches"], ["master"])
+        self.assertEqual(events["push"]["paths"], [
+            "ci/full-build-request/arm64-20261102.yml"
+        ])
+        self.assertEqual(workflow["permissions"]["contents"], "read")
+        job = workflow["jobs"]["validate"]
+        self.assertEqual(job["runs-on"], "ubuntu-24.04-arm")
+        self.assertEqual(job["permissions"]["contents"], "read")
+        checkout = next(x for x in job["steps"] if x.get("uses", "").startswith("actions/checkout@"))
+        self.assertIs(checkout["with"]["persist-credentials"], False)
+        prepare = next(
+            x for x in job["steps"]
+            if x.get("uses") == "./.github/actions/prepare-binaries"
+        )
+        self.assertEqual(prepare["with"]["mode"], "source")
+        self.assertEqual(prepare["with"]["arch"], "arm64")
+        self.assertIn("'all'", prepare["with"]["stage"])
+        self.assertIn("'stage1-light'", prepare["with"]["stage"])
+        self.assertEqual(prepare["with"]["restore_cache"], "false")
+        self.assertIn("github.event_name == 'push'", prepare["with"]["strict_package"])
+        self.assertIn("binary-promotion-candidate-", source.read_text(encoding="utf-8"))
+        self.assertNotIn("ARTIFACT_PR_TOKEN", source.read_text(encoding="utf-8"))
+
     def test_exact_master_push_build_request_requires_full_strict_mode(self):
         build = yaml.safe_load(
             (ROOT / ".github/workflows/build-default-binaries.yml").read_text(
