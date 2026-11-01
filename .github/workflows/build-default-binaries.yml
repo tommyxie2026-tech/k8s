@@ -10,6 +10,7 @@ on:
       - scripts/package-built-binaries.sh
       - scripts/verify-binary-cache.sh
       - scripts/write-sha256sums.sh
+      - scripts/generate-download-checksums.py
   workflow_dispatch:
     inputs:
       arch:
@@ -37,6 +38,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: binary-source-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   validate:
