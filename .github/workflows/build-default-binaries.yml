@@ -124,3 +124,27 @@ jobs:
             metadata/binary-promotion.json
           retention-days: 14
           if-no-files-found: error
+
+  core-stage-smoke:
+    name: Build pinned ${{ matrix.stage }} sources without publishing
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        stage: [stage2-core, stage3-runtime]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+          persist-credentials: false
+      - uses: ./.github/actions/prepare-binaries
+        with:
+          mode: source
+          arch: amd64
+          stage: ${{ matrix.stage }}
+          restore_cache: 'false'
+          strict_package: 'false'
