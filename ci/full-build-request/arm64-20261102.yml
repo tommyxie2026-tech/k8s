@@ -1,0 +1,10 @@
+# Dedicated master push request for an ARM64 native full-source build.
+# Merge only after AMD64 artifact PR is reconciled, so source SHA remains stable.
+request_id: "arm64-full-source-20261102"
+architecture: arm64
+stage: all
+strict_package: true
+restore_cache: false
+source_ref: master
+delivery: files/arm64
+policy: verified-git-lfs-pull-request
