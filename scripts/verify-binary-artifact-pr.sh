@@ -41,7 +41,7 @@ read -r source_sha run_number run_attempt < <(
   jq -r '[.head_sha, (.run_number|tostring), (.run_attempt|tostring)] | join(" ")' <<< "${run}"
 )
 jq -e --arg repo "${GITHUB_REPOSITORY}" \
-  '.name == "Build default binaries" and
+  '.name == "Build default binaries (read-only validation)" and
    .event == "workflow_dispatch" and .head_branch == "master" and
    .head_repository.full_name == $repo and
    .status == "completed" and .conclusion == "success"' <<< "${run}" >/dev/null || {
