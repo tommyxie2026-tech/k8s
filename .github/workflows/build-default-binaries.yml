@@ -1,6 +1,15 @@
 name: Build default binaries (read-only validation)
 
 on:
+  pull_request:
+    paths:
+      - .github/workflows/build-default-binaries.yml
+      - .github/actions/prepare-binaries/**
+      - repo/sources.yml
+      - scripts/build-default-binaries.sh
+      - scripts/package-built-binaries.sh
+      - scripts/verify-binary-cache.sh
+      - scripts/write-sha256sums.sh
   workflow_dispatch:
     inputs:
       arch:
@@ -40,21 +49,21 @@ jobs:
       - uses: actions/checkout@v4
         with:
           lfs: false
-          persist-credentials: true
+          persist-credentials: false
       - uses: ./.github/actions/prepare-binaries
         with:
           mode: source
-          arch: ${{ inputs.arch }}
-          stage: ${{ inputs.stage }}
-          components: ${{ inputs.components }}
-          restore_cache: ${{ inputs.restore_cache }}
-          strict_package: ${{ inputs.strict_package }}
+          arch: ${{ inputs.arch || 'amd64' }}
+          stage: ${{ inputs.stage || 'stage1-light' }}
+          components: ${{ inputs.components || '' }}
+          restore_cache: ${{ inputs.restore_cache || false }}
+          strict_package: ${{ inputs.strict_package || false }}
       - name: Upload verified build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: k8s-source-validation-${{ inputs.arch }}-${{ github.run_number }}
+          name: k8s-source-validation-${{ inputs.arch || 'amd64' }}-${{ github.run_number }}
           path: |
-            files/${{ inputs.arch }}/
-            inventories/group_vars/download-checksums-${{ inputs.arch }}.yml
+            files/${{ inputs.arch || 'amd64' }}/
+            inventories/group_vars/download-checksums-${{ inputs.arch || 'amd64' }}.yml
           retention-days: 14
           if-no-files-found: error
