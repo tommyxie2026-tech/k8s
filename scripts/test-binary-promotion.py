@@ -89,8 +89,12 @@ class PromotionWorkflowSafetyTests(unittest.TestCase):
             "--squash",
         ):
             self.assertIn(required, script)
-        self.assertNotIn("--admin", script)
-        self.assertNotIn("--auto", script)
+        commands = "\n".join(
+            line for line in script.splitlines()
+            if not line.lstrip().startswith("#")
+        )
+        self.assertNotIn("--admin", commands)
+        self.assertNotIn("--auto", commands)
 
 
 class PromotionValidationTests(unittest.TestCase):
