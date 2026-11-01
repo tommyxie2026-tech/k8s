@@ -63,6 +63,52 @@ jobs:
           components: ${{ inputs.components || '' }}
           restore_cache: ${{ inputs.restore_cache || false }}
           strict_package: ${{ inputs.strict_package || false }}
+      - name: Create promotion marker only for complete strict source builds
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.stage == 'all' && inputs.strict_package == true && inputs.restore_cache == false }}
+        shell: bash
+        env:
+          ARCH: ${{ inputs.arch }}
+          SOURCE_SHA: ${{ github.sha }}
+          BUILD_RUN_ID: ${{ github.run_id }}
+          BUILD_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          mkdir -p metadata
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          arch = os.environ["ARCH"]
+          if arch not in {"amd64", "arm64"}:
+              raise SystemExit("invalid artifact architecture")
+          sha = os.environ["SOURCE_SHA"]
+          if len(sha) != 40 or any(c not in "0123456789abcdef" for c in sha):
+              raise SystemExit("invalid build source sha")
+          marker = {
+              "schema_version": 1,
+              "source_mode": "source",
+              "stage": "all",
+              "strict_package": True,
+              "arch": arch,
+              "source_sha": sha,
+              "run_id": int(os.environ["BUILD_RUN_ID"]),
+              "run_attempt": int(os.environ["BUILD_RUN_ATTEMPT"]),
+          }
+          Path("metadata/binary-promotion.json").write_text(
+              json.dumps(marker, sort_keys=True) + "\n", encoding="utf-8"
+          )
+          PY
+
+      - name: Upload full-build promotion marker
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.stage == 'all' && inputs.strict_package == true && inputs.restore_cache == false }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-promotion-candidate-${{ github.run_number }}
+          path: metadata/binary-promotion.json
+          retention-days: 14
+          if-no-files-found: error
+
       - name: Upload verified build artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -70,5 +116,6 @@ jobs:
           path: |
             files/${{ inputs.arch || 'amd64' }}/
             inventories/group_vars/download-checksums-${{ inputs.arch || 'amd64' }}.yml
+            metadata/binary-promotion.json
           retention-days: 14
           if-no-files-found: error
