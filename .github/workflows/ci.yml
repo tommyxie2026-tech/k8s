@@ -89,6 +89,9 @@ jobs:
       - name: Test source-tag build pipeline with offline Git fixture
         run: python scripts/test-source-build-pipeline.py
 
+      - name: Test strict, architecture-scoped binary PR promotion gates
+        run: python scripts/test-binary-promotion.py
+
   ansible-syntax-container:
     name: Ansible syntax checks - container inventory
     runs-on: ubuntu-latest

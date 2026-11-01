@@ -1,0 +1,85 @@
+name: Auto-merge validated binary artifact PR
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+      - Verify binary artifact PR
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+jobs:
+  inspect:
+    name: Identify eligible generated binary PR
+    if: >-
+      ${{ github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.head_repository.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    outputs:
+      eligible: ${{ steps.find.outputs.eligible }}
+      number: ${{ steps.find.outputs.number }}
+      head_sha: ${{ steps.find.outputs.head_sha }}
+    steps:
+      - id: find
+        name: Resolve completed run to a generated PR
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_RUN_ID: ${{ github.event.workflow_run.id }}
+          EVENT_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          number="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${EVENT_RUN_ID}/pulls" --jq '.[0].number // empty')"
+          if [[ -z "${number}" ]]; then
+            echo "No PR associated with completed check; skipping"
+            echo "eligible=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          pr="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${number}")"
+          name="$(jq -r '.head.ref' <<< "${pr}")"
+          sha="$(jq -r '.head.sha' <<< "${pr}")"
+          if ! [[ "${name}" =~ ^artifact-pr/(amd64|arm64)/run-[1-9][0-9]*-attempt-[1-9][0-9]*$ ]]; then
+            echo "Not a generated artifact PR; skipping"
+            echo "eligible=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          if [[ "${sha}" != "${EVENT_HEAD_SHA}" ]]; then
+            echo "Check run SHA does not match current PR HEAD; skipping"
+            echo "eligible=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          echo "eligible=true" >> "${GITHUB_OUTPUT}"
+          echo "number=${number}" >> "${GITHUB_OUTPUT}"
+          echo "head_sha=${sha}" >> "${GITHUB_OUTPUT}"
+
+  merge:
+    name: Merge only after CI plus LFS verification pass
+    needs: inspect
+    if: ${{ needs.inspect.outputs.eligible == 'true' }}
+    runs-on: ubuntu-latest
+    environment: binary-artifact-pr
+    concurrency:
+      group: verified-binary-pr-${{ needs.inspect.outputs.number }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    steps:
+      - name: Confirm required checks, source SHA and merge
+        env:
+          GH_TOKEN: ${{ secrets.ARTIFACT_PR_TOKEN }}
+          PR_NUMBER: ${{ needs.inspect.outputs.number }}
+          EXPECTED_HEAD_SHA: ${{ needs.inspect.outputs.head_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # This trusted script is fetched from the current master, never PR code.
+          gh api "repos/${GITHUB_REPOSITORY}/contents/scripts/auto-merge-verified-binary-pr.sh?ref=master" \
+            --jq '.content' | base64 -d > auto-merge-verified-binary-pr.sh
+          bash auto-merge-verified-binary-pr.sh
