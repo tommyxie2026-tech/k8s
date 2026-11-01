@@ -1,0 +1,91 @@
+name: Build ARM64 full binaries (read-only validation)
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/build-arm64-full-binaries.yml
+      - ci/full-build-request/arm64-20261102.yml
+  push:
+    branches: [master]
+    paths:
+      - ci/full-build-request/arm64-20261102.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: arm64-source-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  validate:
+    name: Build ARM64 pinned source and verify
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 360
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+          persist-credentials: false
+      - uses: ./.github/actions/prepare-binaries
+        with:
+          mode: source
+          arch: arm64
+          stage: ${{ github.event_name == 'push' && 'all' || 'stage1-light' }}
+          restore_cache: 'false'
+          strict_package: ${{ github.event_name == 'push' }}
+
+      - name: Create full-source promotion marker
+        if: ${{ github.event_name == 'push' }}
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          BUILD_RUN_ID: ${{ github.run_id }}
+          BUILD_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          mkdir -p metadata
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          sha = os.environ["SOURCE_SHA"]
+          if len(sha) != 40 or any(c not in "0123456789abcdef" for c in sha):
+              raise SystemExit("invalid source SHA")
+          marker = {
+              "schema_version": 1,
+              "source_mode": "source",
+              "stage": "all",
+              "strict_package": True,
+              "arch": "arm64",
+              "source_sha": sha,
+              "run_id": int(os.environ["BUILD_RUN_ID"]),
+              "run_attempt": int(os.environ["BUILD_RUN_ATTEMPT"]),
+          }
+          Path("metadata/binary-promotion.json").write_text(
+              json.dumps(marker, sort_keys=True) + "\n", encoding="utf-8"
+          )
+          PY
+
+      - name: Upload ARM64 full-build promotion marker
+        if: ${{ github.event_name == 'push' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-promotion-candidate-${{ github.run_number }}-${{ github.run_attempt }}
+          path: metadata/binary-promotion.json
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Upload verified ARM64 build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: k8s-source-validation-arm64-${{ github.run_number }}-${{ github.run_attempt }}
+          path: |
+            files/arm64/
+            inventories/group_vars/download-checksums-arm64.yml
+            metadata/binary-promotion.json
+          retention-days: 14
+          if-no-files-found: error
