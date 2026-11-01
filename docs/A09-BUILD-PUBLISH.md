@@ -24,6 +24,21 @@ The existing `workflow_dispatch` interface is unchanged: explicitly run `stage=a
 
 For stages 2–4, the publisher restores `binary-cache/<arch>` in the **read-only build job**, then publishes verified combined outputs in the separate protected job. Stage4 and `all` use strict artifact checking. A fresh stage4 build with no preceding cache is expected to fail; run `all` or publish earlier stages first.
 
+## Verified binaries as reviewable files/<arch> PRs
+
+For a successful manual `stage=all`, `strict_package=true`,
+`restore_cache=false` source build on `master`, the read-only build emits
+a run/attempt/source-SHA promotion marker alongside its checked artifacts.
+The separate [artifact PR promotion design](A09-BINARY-ARTIFACT-PR.md) from
+[PR #9](https://github.com/tommyxie2026-tech/k8s/pull/9), **once merged
+to master and configured**, can then verify and open a Git LFS PR updating
+only `files/<arch>` and that architecture's checksum YAML. The build job
+itself never writes to Git or creates a PR, and no generated PR auto-merges.
+
+This is independent of the legacy `binary-cache/<arch>` publisher and
+requires its own constrained `binary-artifact-pr` environment token.
+PR-stage smoke builds and incomplete source stages do not carry the marker.
+
 ## Artifact integrity and offline scope
 
 `scripts/write-sha256sums.sh` writes checksums for **relative paths**, excluding itself; `sha256sum -c SHA256SUMS` is verified inside `files/<arch>`. In strict mode `scripts/verify-binary-cache.sh` checks all required binary deployment files, including Calico and containerd.service. SHA256 provides integrity checking, not cryptographic proof of upstream origin. Operators must separately verify release provenance and licenses.
