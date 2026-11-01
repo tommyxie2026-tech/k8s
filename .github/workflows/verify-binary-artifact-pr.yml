@@ -1,0 +1,60 @@
+name: Verify binary artifact PR
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - files/**
+      - inventories/group_vars/download-checksums-*.yml
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+jobs:
+  binary-integrity:
+    name: Compare LFS binaries against trusted successful full-build artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    if: >-
+      ${{ github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.head_ref, 'artifact-pr/') }}
+    steps:
+      - name: Restrict PR diff paths before executing any branch scripts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch="${{ github.head_ref }}"
+          [[ "${branch}" =~ ^artifact-pr/(amd64|arm64)/run-[1-9][0-9]*-attempt-[1-9][0-9]*$ ]] || exit 1
+          arch="${BASH_REMATCH[1]}"
+          files="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100" --jq '.[].filename')"
+          test -n "${files}" || exit 1
+          while IFS= read -r name; do
+            case "${name}" in
+              "files/${arch}/"*|"inventories/group_vars/download-checksums-${arch}.yml") ;;
+              *) echo "Unexpected binary PR file: ${name}" >&2; exit 1 ;;
+            esac
+          done <<< "${files}"
+
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install verification dependencies
+        run: python3 -m pip install pyyaml
+
+      - name: Verify exact compiled source artifact and materialize Git LFS
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bash scripts/verify-binary-artifact-pr.sh
