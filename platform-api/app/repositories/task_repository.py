@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Protocol
 from uuid import uuid4
 
@@ -66,7 +66,7 @@ class SqlTaskRepository:
         return str(uuid4())
 
     def create(self, data: TaskCreate) -> TaskModel:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         task = TaskModel(
             id=self._new_id(),
             name=data.name,
@@ -138,7 +138,7 @@ class SqlTaskRepository:
         task.stderr = stderr
         task.log_path = log_path
         task.resource_version = self._new_resource_version()
-        task.updated_at = datetime.now(timezone.utc)
+        task.updated_at = datetime.now(UTC)
 
         self._session.add(task)
         self._session.commit()

@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from app.core.config import settings
@@ -10,7 +10,7 @@ def audit(event: str, **fields) -> None:
     base.mkdir(parents=True, exist_ok=True)
     path = base / "audit.log"
     record = {
-        "ts": datetime.now(timezone.utc).isoformat(),
+        "ts": datetime.now(UTC).isoformat(),
         "event": event,
         **fields,
     }

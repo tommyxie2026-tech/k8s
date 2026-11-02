@@ -4,7 +4,7 @@ import os
 import subprocess
 import uuid
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 from app.core.config import settings
 from app.core.task_store import task_store
@@ -12,7 +12,7 @@ from app.schemas.common import TaskCreateResponse, TaskInfo, TaskStatus
 
 
 class PlaybookExecutor:
-    def build_command(self, playbook: str, extra_vars: Dict[str, Any] | None = None) -> list[str]:
+    def build_command(self, playbook: str, extra_vars: dict[str, Any] | None = None) -> list[str]:
         cmd = [settings.ansible_playbook_bin, "-i", settings.inventory, playbook]
         for key, value in (extra_vars or {}).items():
             if value is None:
@@ -20,7 +20,7 @@ class PlaybookExecutor:
             cmd.extend(["-e", f"{key}={value}"])
         return cmd
 
-    def submit(self, playbook: str, extra_vars: Dict[str, Any] | None = None) -> TaskCreateResponse:
+    def submit(self, playbook: str, extra_vars: dict[str, Any] | None = None) -> TaskCreateResponse:
         task_id = str(uuid.uuid4())
         command = self.build_command(playbook, extra_vars)
         task = TaskInfo(
@@ -39,7 +39,7 @@ class PlaybookExecutor:
         log_path = Path(settings.task_log_dir) / f"{task_id}.log"
         task_store.update_status(task_id, TaskStatus.running)
         with open(log_path, "ab") as log_file:
-            process = subprocess.Popen(
+            subprocess.Popen(
                 command,
                 cwd=settings.project_root,
                 stdout=log_file,
