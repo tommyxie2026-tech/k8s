@@ -30,6 +30,10 @@ class PromotionWorkflowSafetyTests(unittest.TestCase):
         )
         events = workflow.get("on", workflow.get(True))
         self.assertEqual(events["workflow_run"]["types"], ["completed"])
+        self.assertEqual(set(events["workflow_run"]["workflows"]), {
+            "Build default binaries (read-only validation)",
+            "Build ARM64 full binaries (read-only validation)",
+        })
         self.assertEqual(workflow["permissions"], {"contents": "read", "actions": "read"})
         inspect = workflow["jobs"]["inspect"]
         requirements = inspect["if"]
@@ -84,6 +88,11 @@ class PromotionWorkflowSafetyTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn('.event == "push"', script)
+        self.assertIn("Build ARM64 full binaries (read-only validation)", script)
+        verifier = (root / "scripts/verify-binary-artifact-pr.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("Build ARM64 full binaries (read-only validation)", verifier)
         for required in (
             "ci.yml",
             "verify-binary-artifact-pr.yml",
