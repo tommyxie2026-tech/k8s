@@ -8,6 +8,12 @@ FORBIDDEN_IMPORTS = ("app.core.executor", "app.services.executor")
 # Remove entries as routers are migrated to WorkflowService or TaskService.
 LEGACY_EXECUTOR_IMPORT_ALLOWLIST = {
     "backup.py",
+    "kubevirt.py",  # mounted legacy action router, tracked for M3-4
+    "cluster.py",  # pre-existing unmounted legacy router
+    "nodepool.py",  # pre-existing unmounted legacy router
+    "restore.py",  # pre-existing unmounted legacy router
+    "storagepool.py",  # pre-existing unmounted legacy router
+    "vm.py",  # unmounted legacy route module, tracked for removal review
     "clusters.py",
     "governance.py",
     "nodepools.py",
